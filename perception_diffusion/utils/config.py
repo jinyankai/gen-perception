@@ -317,12 +317,47 @@ def _validate_task_boundaries(
             codec = task_data.get("codec")
             evaluation = evaluation_config.get(task_name)
         else:
+            task_data = data_config
             codec = config["task"].get("codec")
             evaluation = evaluation_config
         if not isinstance(codec, dict):
             raise ConfigError(f"{source}: {task_name} codec must be a mapping")
         if not isinstance(evaluation, dict):
             raise ConfigError(f"{source}: {task_name} evaluation must be a mapping")
+
+        dataset_name = task_data.get("name" if is_multitask else "dataset")
+        if not isinstance(dataset_name, str) or not dataset_name:
+            raise ConfigError(f"{source}: {task_name} dataset name is required")
+        if dataset_name != "synthetic":
+            root = task_data.get("root")
+            if not isinstance(root, str) or not root:
+                raise ConfigError(f"{source}: {task_name} data.root is required")
+        image_size = task_data.get("image_size")
+        if (
+            not isinstance(image_size, list)
+            or len(image_size) != 2
+            or not all(
+                isinstance(value, int) and not isinstance(value, bool) and value > 0
+                for value in image_size
+            )
+        ):
+            raise ConfigError(f"{source}: {task_name} data.image_size must be [H,W]")
+        num_workers = task_data.get("num_workers", data_config.get("num_workers", 0))
+        if (
+            not isinstance(num_workers, int)
+            or isinstance(num_workers, bool)
+            or num_workers < 0
+        ):
+            raise ConfigError(f"{source}: {task_name} data.num_workers must be non-negative")
+        flip_probability = task_data.get("horizontal_flip_probability", 0.0)
+        if (
+            not isinstance(flip_probability, (int, float))
+            or isinstance(flip_probability, bool)
+            or not 0.0 <= float(flip_probability) <= 1.0
+        ):
+            raise ConfigError(
+                f"{source}: {task_name} horizontal_flip_probability must be in [0,1]"
+            )
 
         if task_name == "segmentation":
             if codec.get("name") not in {
@@ -358,6 +393,32 @@ def _validate_task_boundaries(
                 raise ConfigError(f"{source}: normal channel_order must be xyz")
             if not isinstance(codec.get("flip_y"), bool):
                 raise ConfigError(f"{source}: normal flip_y must be boolean")
+
+        if dataset_name == "nyuv2":
+            if task_data.get("source", "auto") not in {"auto", "raw", "processed"}:
+                raise ConfigError(f"{source}: unsupported NYUv2 data.source")
+            if task_data.get("depth_field", "depths") not in {"depths", "rawDepths"}:
+                raise ConfigError(f"{source}: unsupported NYUv2 depth_field")
+        if dataset_name == "ade20k":
+            if task_data.get("query_sampling", "mixed") not in {
+                "mixed",
+                "uniform",
+                "fixed",
+            }:
+                raise ConfigError(f"{source}: unsupported ADE20K training query_sampling")
+            if task_data.get("evaluation_query_sampling", "fixed") != "fixed":
+                raise ConfigError(
+                    f"{source}: ADE20K evaluation query placeholder must be GT-independent fixed"
+                )
+            fixed_query = task_data.get("fixed_query_class_id", 0)
+            if (
+                not isinstance(fixed_query, int)
+                or isinstance(fixed_query, bool)
+                or not 0 <= fixed_query < 150
+            ):
+                raise ConfigError(
+                    f"{source}: ADE20K fixed_query_class_id must lie in [0,149]"
+                )
 
 
 def validate_config(config: dict[str, Any], *, source: str = "<memory>") -> None:

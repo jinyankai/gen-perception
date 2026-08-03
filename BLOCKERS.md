@@ -1,33 +1,27 @@
 # Blockers
 
-## B001 - No writable high-capacity project storage
+## B001 - Writable project storage
 
-- Status: OPEN
-- Evidence: system filesystem had about 39 GiB free; `/data` had capacity but its root was not writable.
-- Impact: model cache, ADE20K/NYUv2, checkpoints, predictions, and formal outputs must not be placed under the system filesystem.
-- Minimum resolution: allocate a writable directory such as `/data/jinyankai/gen-perception` or provide another approved high-capacity path.
-- Non-blocked work: repository, unit tests, codecs, evaluators, configs, and CPU smoke tests.
+- Status: RESOLVED FOR STAGE-ONE ARTIFACTS
+- Evidence: the user approved `/home/jinyankai/data`, `/home/jinyankai/models`, and `/home/jinyankai/outputs`, reported about 200 GiB free, and the asset validator read the model and datasets from those roots.
+- Remaining constraint: monitor free space before checkpoints, predictions, or additional model/dataset downloads.
 
 ## B002 - All GPUs occupied at inventory time
 
-- Status: OPEN
-- Evidence: every RTX 4090 had active compute processes and at least about 16 GiB memory in use.
-- Impact: CUDA smoke tests and training cannot be run safely without interfering with other users.
-- Minimum resolution: provide a GPU availability window or confirm which GPU IDs are allocated to this project.
-- Non-blocked work: CPU implementation, configuration, tests, data protocol design, and documentation.
+- Status: RESOLVED FOR SINGLE-GPU CUDA; MULTI-GPU NCCL PENDING
+- Evidence: the user reported an eight-GPU availability window and returned a successful GPU 0 real-SD2 CUDA forward (`S003`). The initial eight-rank NCCL smoke exceeded 60 seconds and returned no rank-level log, so distributed execution remains unverified.
+- Impact: bounded single-GPU training gates may proceed. Multi-GPU or long training remains blocked until an instrumented NCCL all-reduce passes and the remaining training gates are complete.
+- Minimum resolution for multi-GPU: run `scripts/operator/distributed_cuda_smoke.py` with two ranks and then eight ranks, retaining the rank-level log.
 
-## B003 - Hugging Face unreachable from server
+## B003 - Default Hugging Face endpoint unreachable from server
 
-- Status: MITIGATION IMPLEMENTED, CONNECTIVITY UNVERIFIED
-- Evidence: HTTPS probe to `huggingface.co` timed out; GitHub and PyPI succeeded.
-- Impact: Stable Diffusion, Marigold, and many baseline checkpoints cannot download through the default Hub route.
-- Current mitigation: standard `HF_ENDPOINT=https://hf-mirror.com` support plus an immutable-revision downloader and manifest.
-- Minimum resolution: verify mirror connectivity from the server; otherwise use an approved proxy, pre-populated shared cache, or offline transfer of exact checkpoints and licenses.
-- Non-blocked work: package installation from PyPI, source code, synthetic smoke tests, and evaluator implementation.
+- Status: RESOLVED FOR THE REQUIRED SD2 SNAPSHOT; DEFAULT ENDPOINT STILL UNVERIFIED
+- Evidence: HTTPS to `huggingface.co` timed out during inventory, but the required `sd2-community/stable-diffusion-2` files were obtained through `hf-mirror.com`, registered locally, and loaded offline by the validator.
+- Provenance qualification: revision `2511124fabf8bf30c0ca9dccd9729e7f0f2fa669` was registered after an external download, so the local artifact is operationally validated but its original upstream revision is not independently proven by this run.
+- Remaining constraint: use the mirror/offline manifest workflow for further Hub artifacts and retain license/source records.
 
-## B004 - Required datasets not located
+## B004 - Required datasets located
 
-- Status: OPEN
-- Evidence: limited user-home inventory found no ADE20K/PASCAL Context or NYUv2 directories.
-- Impact: dataset adapters can be implemented against documented layouts, but real-data smoke and formal metrics remain blocked.
-- Minimum resolution: approved dataset paths or permission to download and prepare the datasets in B001 storage.
+- Status: IMPLEMENTED LOCALLY; SERVER DATA-PIPELINE SMOKE PENDING
+- Evidence: ADEChallengeData2016 image/mask samples and the 1,449-sample NYUv2 labeled MAT datasets passed structural and codec checks under `/home/jinyankai/data`.
+- Remaining constraint: run the new canonical split/DataLoader and derived-normal preprocessing smokes against the server assets before training or benchmark claims.

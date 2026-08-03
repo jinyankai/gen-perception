@@ -22,7 +22,16 @@ data:
     segmentation:
       name: ade20k
       root: "${DATA_ROOT}/ADEChallengeData2016"
+      split: training
+      validation_split: validation
       image_size: [512, 512]
+      num_workers: 8
+      horizontal_flip_probability: 0.5
+      query_sampling: mixed
+      evaluation_query_sampling: fixed
+      fixed_query_class_id: 0
+      positive_query_probability: 0.5
+      drop_last: false
       codec:
         name: binary_query_mask
         num_classes: 150
@@ -31,7 +40,15 @@ data:
     depth:
       name: nyuv2
       root: "${DATA_ROOT}/nyuv2"
+      split: train
+      validation_split: test
       image_size: [480, 640]
+      num_workers: 8
+      source: auto
+      processed_dir: processed
+      depth_field: depths
+      horizontal_flip_probability: 0.5
+      drop_last: false
       codec:
         name: affine_invariant_depth
         min_depth: 0.1
@@ -39,7 +56,16 @@ data:
     normal:
       name: nyuv2
       root: "${DATA_ROOT}/nyuv2"
+      split: train
+      validation_split: test
       image_size: [480, 640]
+      num_workers: 8
+      source: auto
+      processed_dir: processed
+      depth_field: depths
+      horizontal_flip_probability: 0.5
+      normal_max_relative_depth_jump: 0.05
+      drop_last: false
       codec:
         name: unit_vector
         coordinate_system: camera

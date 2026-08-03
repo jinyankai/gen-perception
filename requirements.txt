@@ -6,6 +6,7 @@ huggingface-hub>=1.0,<2
 safetensors>=0.5,<1
 numpy>=2.0,<3
 scipy>=1.14,<2
+h5py>=3.11,<4
 pillow>=11,<13
 opencv-python-headless>=4.10,<5
 PyYAML>=6.0,<7

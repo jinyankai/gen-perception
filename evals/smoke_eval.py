@@ -21,6 +21,7 @@ REQUIRED = [
     "perception_diffusion/evaluation/segmentation.py",
     "perception_diffusion/evaluation/depth.py",
     "perception_diffusion/evaluation/normal.py",
+    "perception_diffusion/evaluation/runner.py",
     "scripts/train.py",
     "scripts/validate_configs.py",
     "scripts/hf_mirror_env.sh",
@@ -43,6 +44,7 @@ REQUIRED = [
     "perception_diffusion/inference/latent_sampler.py",
     "perception_diffusion/training/unified_trainer.py",
     "scripts/framework_smoke.py",
+    "scripts/evaluate.py",
 ]
 
 

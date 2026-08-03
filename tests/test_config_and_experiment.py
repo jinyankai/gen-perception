@@ -57,6 +57,15 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ConfigError):
             validate_config(config)
 
+    def test_ade20k_evaluation_target_query_cannot_inspect_gt(self):
+        config = load_config(
+            ROOT / "configs" / "segmentation" / "ade20k.yaml",
+            expand_environment=False,
+        )
+        config["data"]["evaluation_query_sampling"] = "first_present"
+        with self.assertRaises(ConfigError):
+            validate_config(config)
+
     def test_invalid_task_is_rejected(self):
         config = {
             "experiment": {"name": "bad", "seed": 0},

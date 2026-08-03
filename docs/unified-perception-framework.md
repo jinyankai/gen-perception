@@ -1,6 +1,6 @@
 # 统一生成式感知框架技术方案
 
-状态：v1 架构与工程配置已落地，完整训练/推理闭环待实现  
+状态：v1 架构、配置和 latent 级共享训练/采样核心已落地；真实 SD2 与数据闭环待实现
 阶段范围：语义分割、单目深度、表面法线  
 参考：`生成模型感知任务能力研究考核方案 (2).docx`、`MarigoldSemanticSegmentation/`
 
@@ -36,15 +36,15 @@ v1 必须满足以下不变量：
 ### 2.2 必须修正的问题
 
 1. 深度和法线都使用空文本条件。若合并为单一权重，模型没有可靠信号区分任务。
-	我觉得可以利用一个task token做信号区分，这里可以给我一点参考和示例可能解决方法
+   - 当前处理：每个样本显式携带 `task_name`，用独立的可学习 task-token 组和任务条件 adapter 形成 cross-attention 条件；第 4.1 节给出接口和消融建议。
 2. 三套训练/推理代码高度重复，注册入口也不完整，后续修复容易发生行为漂移。
-	这里进行代码重构和对齐，保证可以跑通和实现
+   - 当前处理：三任务共用 `TaskSpec`、`UnifiedPerceptionDenoiser`、`UnifiedDiffusionTrainerCore` 和 `UnifiedLatentSampler`；真实数据到指标的完整 pipeline 仍是下一阶段工作。
 3. 分割参考实现按当前样本 GT 中出现的类别生成查询，属于 GT 信息泄漏；统一框架必须从数据集词表、用户文本或独立候选生成器获得类别。
-	这里是不是需要根据数据集的测评来？如果是的就按照任务考核中推荐数据集实现
+   - 当前处理：按考核推荐的 ADE20K-150 封闭集协议，从 `objectInfo150.txt` 生成全量类别查询；query planner 的 API 不接收 GT mask。
 4. 分割二值掩码的训练输入范围与推理解码假设不一致。所有输入 VAE 的目标都必须显式归一化到约定范围。
-	这里是不是有task codec决定？ 如果是我们可以探讨一下使用一个可学习如cnn来把图像的通道展开到一个统一的标准再送入vae
+   - 当前处理：由确定性的 `TargetCodec` 定义语义、通道和值域并断言 `[-1,1]`；可学习 CNN 仅作为 codec 后的零初始化有界残差消融，不能替代协议转换。
 5. 参考代码包含硬编码路径和设备编号。统一框架只允许从配置和环境变量读取数据、模型和输出位置。
-	修改成支持配置文件的工程化项目
+   - 当前处理：模型、数据和输出路径分别由 `${MODEL_CACHE}`、`${DATA_ROOT}`、`${OUTPUT_ROOT}` 注入，GPU 分配交给 `CUDA_VISIBLE_DEVICES`，版本化 YAML 负责其余运行参数。
 
 ## 3. 方案比较与推荐
 
@@ -140,8 +140,8 @@ output = denoiser(
 
 | 旧概念/命名 | 统一命名 | 职责 |
 | --- | --- | --- |
-| `MarigoldDepthPipeline` / `MarigoldNormalsPipeline` / 分割 pipeline | `UnifiedPerceptionPipeline` | 单一采样、解码和输出入口 |
-| 三套 task trainer | `UnifiedTrainer` | 单一扩散损失、优化器和证据记录 |
+| `MarigoldDepthPipeline` / `MarigoldNormalsPipeline` / 分割 pipeline | `UnifiedLatentSampler`（当前核心）/ `UnifiedPerceptionPipeline`（完整入口） | 当前统一 latent 采样；后续接入 VAE 解码、输出和指标 |
+| 三套 task trainer | `UnifiedDiffusionTrainerCore`（当前核心）/ `UnifiedTrainer`（完整入口） | 当前统一扩散损失；后续接入优化器、checkpoint 和证据记录 |
 | 任务内散落的 encode/decode | `TargetCodec` | 目标值域、VAE 表示和输出反变换 |
 | 空文本/类别文本的混合用法 | `TaskTokenConditioner` | 强制任务 token + 可选文本 token |
 | 重复 U-Net 调用 | `UnifiedPerceptionDenoiser` | 8 通道输入、共享 U-Net 前向 |
@@ -338,7 +338,7 @@ evaluation:
 
 ## 10. 实施阶段与验收门
 
-### M0：架构和配置骨架（当前）
+### M0：架构和配置骨架（本地结构闭环已完成）
 
 - [x] 任务注册名称与校验；
 - [x] task token、可选 text token 和任务 adapter；

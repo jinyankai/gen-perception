@@ -28,13 +28,16 @@ Prefer idempotent scripts under `scripts/operator/`. Do not claim a remote actio
 - Never persist passwords, access tokens, private keys, host details, or personal account identifiers in Git, agent memory, scripts, or logs.
 - Never request `sudo`; the account does not have it.
 - Never stop, signal, or interfere with another user's GPU processes.
-- Keep datasets, caches, checkpoints, and outputs off the nearly full system filesystem once a writable high-capacity project path is approved.
+- Keep datasets, models, checkpoints, and outputs under the approved `/home/jinyankai/data`, `/home/jinyankai/models`, and `/home/jinyankai/outputs` roots; check free space before material growth.
 - Destructive or non-recoverable operations require explicit user authorization and a verified target.
 
 ## Current remote handoff state
 
-- The project directory is expected to exist.
-- A prior interrupted attempt initialized `.git`; the subsequent fetch timed out from the client side. Repository synchronization and branch state are therefore unknown.
-- Hugging Face mirror connectivity from the server has not been verified.
-- Writable high-capacity storage and a free GPU window remain unresolved.
-- Before the first checkout, ask the user for read-only `git status`, remote, and branch output. Once the working tree contains this branch, export the actual checkout as `PROJECT_ROOT`, run `scripts/operator/sync_server_repo.sh`, then run `scripts/operator/probe_hf_mirror.sh`, and treat the returned logs as evidence. The script intentionally has no user-specific path default.
+- The project directory `/home/jinyankai/gen-perception` was confirmed by the returned inventory.
+- The isolated environment is `/home/jinyankai/miniconda3/envs/gen-perception`.
+- The approved asset/output roots are under `/home/jinyankai`; the user reported about 200 GiB free.
+- The local workspace pushed `origin/codex/stage1-core` at commit `3ea54b8`. The server can run project scripts, but its exact checked-out commit remains unbound in the returned evidence.
+- The required `sd2-community/stable-diffusion-2` snapshot was obtained through `hf-mirror.com`, registered locally, and loaded offline. Default `huggingface.co` connectivity is still not established.
+- The S002 user-operated validator passed on CPU for the SD2 components, ADE20K/NYUv2 assets, codecs, and project 8-channel denoiser forward; see `../validation/stage1-assets-2026-08-03.md`.
+- The user subsequently reported an eight-GPU availability window. S003 passed the same real-SD2 integration forward on GPU 0; see `../validation/segmentation-cuda-forward-2026-08-03.md`.
+- The initial eight-rank NCCL command exceeded 60 seconds without rank-level output. Distributed execution remains unresolved; rerun the bounded checked-in smoke at two ranks and then eight ranks before any DDP launch.

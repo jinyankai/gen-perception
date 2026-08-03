@@ -23,8 +23,8 @@ venv/
 Thumbs.db
 
 # Research artifacts
-data/
-datasets/
+/data/
+/datasets/
 model_cache/
 checkpoints/
 outputs/**

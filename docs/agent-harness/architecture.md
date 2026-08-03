@@ -4,7 +4,7 @@
 
 - `perception_diffusion/codecs`: reversible or approximately reversible task target representations.
 - `perception_diffusion/data`: adapters and dataset-owned metadata, including segmentation taxonomies, that map datasets to the unified batch schema.
-- `perception_diffusion/evaluation`: protocol-aligned metrics for segmentation, depth, and normals.
+- `perception_diffusion/evaluation`: protocol-aligned metrics plus strict paired-file dataset aggregation for segmentation, depth, and normals.
 - `perception_diffusion/models`: VAE, task conditioner, denoiser, scheduler, and unified model boundaries.
 - `perception_diffusion/training`: the task-agnostic diffusion loss and future optimizer/checkpoint loop.
 - `perception_diffusion/inference`: the shared latent sampler and leakage-free task query planning.
@@ -27,6 +27,7 @@
 - Stage-one batches are task-homogeneous. Multi-task scheduling happens between batches, never by forking trainers.
 - Model configuration is inherited from `configs/base/model.yaml`; task configs may override only task/data/evaluation and intentional experiment fields.
 - Model/download paths come from config or environment variables, never hard-coded absolute paths.
+- `scripts/evaluate.py` is the shared offline metric entry point. File decoding and aggregation live in `evaluation/runner.py`; task-specific metric definitions remain in the individual evaluator modules.
 - `outputs/<task>/<experiment>/` is append-oriented evidence. Failed runs are retained.
 - Public reports must not contain credentials, private server addresses, or other users' private paths.
 

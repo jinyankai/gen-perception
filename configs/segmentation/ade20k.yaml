@@ -22,6 +22,12 @@ data:
   validation_split: validation
   image_size: [512, 512]
   num_workers: 8
+  horizontal_flip_probability: 0.5
+  query_sampling: mixed
+  evaluation_query_sampling: fixed
+  fixed_query_class_id: 0
+  positive_query_probability: 0.5
+  drop_last: false
 
 training:
   max_steps: 20000

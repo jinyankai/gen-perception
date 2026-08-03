@@ -22,6 +22,12 @@ data:
   validation_split: test
   image_size: [480, 640]
   num_workers: 8
+  source: auto
+  processed_dir: processed
+  depth_field: depths
+  horizontal_flip_probability: 0.5
+  normal_max_relative_depth_jump: 0.05
+  drop_last: false
 
 training:
   max_steps: 20000
