@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Environments and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Research artifacts
+data/
+datasets/
+model_cache/
+checkpoints/
+outputs/**
+!outputs/README.md
+wandb/
+runs/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Local/server inventory and credentials
+server_inventory*.txt
+test.sh
+
+# Build
+build/
+dist/
+*.egg-info/

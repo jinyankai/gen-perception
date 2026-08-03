@@ -1,0 +1,13 @@
+# Install the CUDA-specific torch stack first with requirements-torch-cu128.txt.
+diffusers==0.39.0
+transformers==5.9.0
+accelerate==1.13.0
+huggingface-hub>=1.0,<2
+safetensors>=0.5,<1
+numpy>=2.0,<3
+scipy>=1.14,<2
+pillow>=11,<13
+opencv-python-headless>=4.10,<5
+PyYAML>=6.0,<7
+tqdm>=4.66,<5
+tensorboard>=2.18,<3
