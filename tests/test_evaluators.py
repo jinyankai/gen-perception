@@ -36,6 +36,13 @@ class DepthEvaluatorTest(unittest.TestCase):
         result = DepthEvaluator(affine_align=False).evaluate(prediction, target)
         self.assertEqual(2, result["raw"]["valid_pixels"])
 
+    def test_constant_prediction_aligns_to_target_mean(self):
+        target = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        prediction = np.ones_like(target)
+        result = DepthEvaluator(affine_align=True).evaluate(prediction, target)
+        self.assertAlmostEqual(0.0, result["alignment"]["scale"])
+        self.assertAlmostEqual(2.5, result["alignment"]["shift"])
+
 
 class NormalEvaluatorTest(unittest.TestCase):
     def test_known_angles(self):

@@ -1,0 +1,87 @@
+defaults:
+  - ../base/model.yaml
+
+experiment:
+  name: stage1-shared-unet-multitask-v1
+  seed: 1337
+  output_root: "${OUTPUT_ROOT}"
+
+task:
+  name: multitask
+  tasks: [segmentation, depth, normal]
+
+data:
+  task_batch_homogeneous: true
+  sampling:
+    strategy: round_robin
+    weights:
+      segmentation: 1.0
+      depth: 1.0
+      normal: 1.0
+  datasets:
+    segmentation:
+      name: ade20k
+      root: "${DATA_ROOT}/ADEChallengeData2016"
+      image_size: [512, 512]
+      codec:
+        name: binary_query_mask
+        num_classes: 150
+        ignore_label: 255
+        threshold: 0.5
+    depth:
+      name: nyuv2
+      root: "${DATA_ROOT}/nyuv2"
+      image_size: [480, 640]
+      codec:
+        name: affine_invariant_depth
+        min_depth: 0.1
+        max_depth: 10.0
+    normal:
+      name: nyuv2
+      root: "${DATA_ROOT}/nyuv2"
+      image_size: [480, 640]
+      codec:
+        name: unit_vector
+        coordinate_system: camera
+        channel_order: xyz
+        flip_y: false
+
+training:
+  max_steps: 60000
+  batch_size: 2
+  mixed_precision: fp16
+  gradient_accumulation_steps: 4
+  task_batch_homogeneous: true
+  optimizer:
+    name: adamw
+    shared_unet_lr: 1.0e-5
+    conditioner_lr: 1.0e-4
+    adapter_lr: 1.0e-4
+    target_adapter_lr: 1.0e-4
+
+inference:
+  scheduler: ddim
+  num_steps: 10
+  ensemble_size: 1
+
+evaluation:
+  segmentation:
+    protocol: ade20k_semantic_150
+    metrics: [miou]
+    ignore_label: 255
+    num_classes: 150
+    vocabulary:
+      source: ade20k_object_info
+      path: "${DATA_ROOT}/ADEChallengeData2016/objectInfo150.txt"
+      expected_num_classes: 150
+    query:
+      mode: closed_set_all_classes
+      prompt_template: "segmentation mask of {class_name}"
+      batch_size: 8
+  depth:
+    metrics: [abs_rel, delta1]
+    min_depth: 0.1
+    max_depth: 10.0
+    affine_align: true
+  normal:
+    metrics: [mean_angular_error, threshold_accuracy]

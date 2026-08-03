@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/jinyankai/gen-perception}"
+: "${PROJECT_ROOT:?Set PROJECT_ROOT to the checked-out repository path}"
 REMOTE_URL="${REMOTE_URL:-https://github.com/jinyankai/gen-perception.git}"
 TARGET_BRANCH="${TARGET_BRANCH:-codex/stage1-core}"
 

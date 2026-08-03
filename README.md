@@ -14,11 +14,15 @@ clean image latent + noisy target latent + timestep + task/text condition
 
 - Repository and research harness: implemented.
 - Server inventory: completed on 2026-08-03.
-- Target codecs and evaluators: next implementation milestone.
+- Target codecs and evaluators: implemented with local unit tests.
+- Task-token + task-adapter + shared-U-Net model skeleton: implemented with local unit tests.
+- Inherited single-task and multi-task engineering configs: implemented and validated.
+- One shared task registry, diffusion loss, and latent sampler: implemented and exercised for all three tasks with tiny CPU components.
+- ADE20K closed-set taxonomy query policy and optional pre-VAE residual CNN ablation: implemented.
 - Pretrained VAE/CLIP/U-Net load test: not yet run.
 - Formal training/evaluation: not yet run.
 
-See `STATUS.md`, `BLOCKERS.md`, and `EXPERIMENTS.md` for evidence-backed state.
+See `docs/unified-perception-framework.md` for the technical design and `STATUS.md`, `BLOCKERS.md`, and `EXPERIMENTS.md` for evidence-backed state.
 
 ## Environment
 
@@ -42,6 +46,7 @@ python evals/smoke_eval.py
 python -m unittest discover -s tests -p 'test_*.py'
 python scripts/validate_configs.py
 python scripts/train.py --config configs/smoke.yaml --dry-run
+python scripts/framework_smoke.py --config configs/multitask/stage1_shared_unet.yaml
 ```
 
 ## Repository map

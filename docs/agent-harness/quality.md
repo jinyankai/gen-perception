@@ -9,6 +9,7 @@ python evals/smoke_eval.py
 python -m unittest discover -s tests -p "test_*.py"
 python scripts/validate_configs.py
 python scripts/train.py --config configs/smoke.yaml --dry-run
+python scripts/framework_smoke.py --config configs/multitask/stage1_shared_unet.yaml
 ```
 
 On Linux, the same commands are used with the active `gen-perception` Python environment.
@@ -25,4 +26,5 @@ On Linux, the same commands are used with the active `gen-perception` Python env
 - Codec tests establish an upper bound before diffusion training.
 - Metric tests use perfect, invalid-mask, and controlled-error examples.
 - A task may enter long training only after the gate sequence documented in `docs/stage-one-plan.md` passes.
+- `framework_smoke.py` proves only the shared structural path with tiny injected components; it is not a pretrained-component or benchmark result.
 - Formal experiment metrics must be reproducible from a committed config and recorded commands.

@@ -34,6 +34,14 @@ Status: partially complete
 - Stage-one scope and paper-to-code plan.
 - Configurable HF-Mirror environment and revision-pinned model/dataset downloader.
 - Durable collaboration boundary: the coding agent works locally and provides reviewed server scripts; the user runs them and returns logs.
+- Segmentation, depth, and normal target codecs and protocol-aligned evaluators with local tests.
+- Unified model skeleton: learned task tokens, optional text tokens, task-specific condition adapters, shared 8-channel U-Net wrapper, and cross-attention trainability policy.
+- Recursive configuration inheritance, single-task configs, and a three-task shared-U-Net configuration.
+- Unified framework technical design in `docs/unified-perception-framework.md`.
+- Configuration-driven `TaskSpec` registry for the three codecs/evaluators and segmentation query policy.
+- ADE20K metadata vocabulary loader plus a closed-set query planner whose API cannot inspect ground-truth masks.
+- Shared mask-aware diffusion loss and latent sampling cores, exercised for all three tasks by a torch-only forward/backward/sample smoke.
+- Optional zero-initialized, bounded, task-specific pre-VAE residual CNN with a dedicated ablation config.
 
 ## Not yet verified
 
@@ -44,11 +52,12 @@ Status: partially complete
 - Remote repository synchronization. A previous session initialized `.git`, but its fetch timed out from the client side, so the resulting branch state is unknown.
 - HF-Mirror connectivity from the server.
 - Training, inference, evaluation, or formal metrics.
+- Real Diffusers SD2/VAE/CLIP forward-backward integration; the current structural smoke uses a torch-only tiny U-Net and scheduler.
 
 ## Next actions
 
-1. Ask the user for read-only Git status, remote, and branch output; then provide the safe first-checkout command.
-2. After checkout, ask the user to run `scripts/operator/sync_server_repo.sh` and `scripts/operator/probe_hf_mirror.sh`, returning both outputs.
-3. Prepare, but do not remotely execute, the Python 3.11 environment setup after storage placement is confirmed.
-4. Obtain an approved writable high-capacity path for datasets, model cache, and outputs.
-5. Obtain a GPU window and provide the user a PyTorch/CUDA plus pretrained-component smoke-test script.
+1. Implement the real SD2 component loader, annealed multi-scale noise, and mask-aware diffusion loss behind the unified model boundary.
+2. Add a single unified trainer/pipeline and complete three-task tiny-overfit gates before formal runs.
+3. Ask the user for read-only Git status, remote, and branch output; then provide the safe first-checkout command.
+4. After checkout, ask the user to run `scripts/operator/sync_server_repo.sh` and `scripts/operator/probe_hf_mirror.sh`, returning both outputs.
+5. Obtain an approved writable high-capacity path and GPU window before any pretrained-component or training smoke test.

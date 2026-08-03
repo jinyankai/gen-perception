@@ -37,4 +37,4 @@ Prefer idempotent scripts under `scripts/operator/`. Do not claim a remote actio
 - A prior interrupted attempt initialized `.git`; the subsequent fetch timed out from the client side. Repository synchronization and branch state are therefore unknown.
 - Hugging Face mirror connectivity from the server has not been verified.
 - Writable high-capacity storage and a free GPU window remain unresolved.
-- Before the first checkout, ask the user for read-only `git status`, remote, and branch output. Once the working tree contains this branch, use `scripts/operator/sync_server_repo.sh`, then `scripts/operator/probe_hf_mirror.sh`, and treat the returned logs as evidence.
+- Before the first checkout, ask the user for read-only `git status`, remote, and branch output. Once the working tree contains this branch, export the actual checkout as `PROJECT_ROOT`, run `scripts/operator/sync_server_repo.sh`, then run `scripts/operator/probe_hf_mirror.sh`, and treat the returned logs as evidence. The script intentionally has no user-specific path default.

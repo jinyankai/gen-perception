@@ -26,8 +26,15 @@ def align_scale_shift(
         raise ValueError("affine alignment requires at least two valid pixels")
     x = pred[mask]
     y = truth[mask]
-    design = np.stack([x, np.ones_like(x)], axis=1)
-    scale, shift = np.linalg.lstsq(design, y, rcond=None)[0]
+    x_mean = float(np.mean(x))
+    y_mean = float(np.mean(y))
+    centered_x = x - x_mean
+    denominator = float(np.sum(centered_x * centered_x))
+    if denominator <= np.finfo(np.float64).eps:
+        scale = 0.0
+    else:
+        scale = float(np.sum(centered_x * (y - y_mean)) / denominator)
+    shift = y_mean - scale * x_mean
     aligned = scale * pred + shift
     return aligned.astype(np.float32), float(scale), float(shift)
 

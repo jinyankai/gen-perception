@@ -19,6 +19,6 @@ probe() {
 }
 
 echo "HF_ENDPOINT=$HF_ENDPOINT"
-probe "MODEL_API" "$HF_ENDPOINT/api/models/stable-diffusion-v1-5/stable-diffusion-v1-5"
+probe "MODEL_API" "$HF_ENDPOINT/api/models/stabilityai/stable-diffusion-2"
 probe "DATASET_API" "$HF_ENDPOINT/api/datasets/zh-plus/tiny-imagenet"
 echo "HF_MIRROR_PROBE=ok"

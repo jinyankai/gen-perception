@@ -28,6 +28,21 @@ REQUIRED = [
     "scripts/operator/sync_server_repo.sh",
     "scripts/operator/probe_hf_mirror.sh",
     "docs/huggingface-mirror.md",
+    "docs/unified-perception-framework.md",
+    "configs/multitask/stage1_shared_unet.yaml",
+    "perception_diffusion/tasks.py",
+    "perception_diffusion/models/conditioning.py",
+    "perception_diffusion/models/adapters.py",
+    "perception_diffusion/models/unet.py",
+    "perception_diffusion/models/unified_denoiser.py",
+    "perception_diffusion/models/builder.py",
+    "perception_diffusion/models/target_adapters.py",
+    "perception_diffusion/task_specs.py",
+    "perception_diffusion/data/segmentation_vocabulary.py",
+    "perception_diffusion/inference/segmentation_queries.py",
+    "perception_diffusion/inference/latent_sampler.py",
+    "perception_diffusion/training/unified_trainer.py",
+    "scripts/framework_smoke.py",
 ]
 
 

@@ -10,6 +10,53 @@ from numpy.typing import NDArray
 from .base import EncodedTarget, ensure_chw3, ensure_hw_mask
 
 
+@dataclass(frozen=True)
+class SegmentationBinaryMaskCodec:
+    """Encode a class-query binary mask in the frozen VAE's [-1,1] input range."""
+
+    threshold: float = 0.5
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.threshold < 1.0:
+            raise ValueError("binary mask threshold must be in (0,1)")
+
+    def encode(
+        self,
+        mask: NDArray[np.generic],
+        valid_mask: NDArray[np.generic] | None = None,
+    ) -> EncodedTarget:
+        array = np.asarray(mask)
+        if array.ndim != 2:
+            raise ValueError(f"binary mask must have shape [H,W], got {array.shape}")
+        if not np.all(np.isfinite(array)):
+            raise ValueError("binary mask must be finite")
+        if not np.all((array == 0) | (array == 1)):
+            raise ValueError("binary mask values must be exactly 0 or 1")
+        valid = ensure_hw_mask(valid_mask, array.shape)
+        normalized = 2.0 * array.astype(np.float32) - 1.0
+        normalized[~valid] = 0.0
+        return EncodedTarget(np.repeat(normalized[None, ...], 3, axis=0), valid)
+
+    def decode_scores(
+        self,
+        encoded: NDArray[np.generic],
+        valid_mask: NDArray[np.generic] | None = None,
+    ) -> NDArray[np.float32]:
+        chw = ensure_chw3(encoded, "encoded binary segmentation mask")
+        valid = ensure_hw_mask(valid_mask, chw.shape[1:])
+        scores = np.clip((np.mean(chw, axis=0) + 1.0) * 0.5, 0.0, 1.0)
+        scores[~valid] = 0.0
+        return scores.astype(np.float32)
+
+    def decode(
+        self,
+        encoded: NDArray[np.generic],
+        valid_mask: NDArray[np.generic] | None = None,
+    ) -> NDArray[np.uint8]:
+        scores = self.decode_scores(encoded, valid_mask)
+        return (scores >= self.threshold).astype(np.uint8)
+
+
 def pascal_palette(size: int) -> NDArray[np.uint8]:
     """Create the deterministic bit-interleaved PASCAL palette."""
 

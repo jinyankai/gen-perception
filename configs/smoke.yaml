@@ -1,3 +1,6 @@
+defaults:
+  - base/model.yaml
+
 experiment:
   name: synthetic-segmentation-smoke
   seed: 1337
@@ -6,13 +9,10 @@ experiment:
 task:
   name: segmentation
   condition: "semantic segmentation"
-
-model:
-  pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-v1-5"
-  prediction_type: epsilon
-  freeze_vae: true
-  freeze_text_encoder: true
-  task_conditioning: learned_token
+  codec:
+    name: palette
+    num_classes: 3
+    ignore_label: 255
 
 data:
   dataset: synthetic
@@ -23,9 +23,15 @@ data:
 training:
   max_steps: 10
   batch_size: 1
-  learning_rate: 1.0e-4
   mixed_precision: "no"
   gradient_accumulation_steps: 1
+  task_batch_homogeneous: true
+  optimizer:
+    name: adamw
+    shared_unet_lr: 1.0e-5
+    conditioner_lr: 1.0e-4
+    adapter_lr: 1.0e-4
+    target_adapter_lr: 1.0e-4
 
 inference:
   scheduler: ddim
@@ -33,5 +39,15 @@ inference:
   ensemble_size: 1
 
 evaluation:
+  protocol: synthetic_closed_set
   ignore_label: 255
   num_classes: 3
+  vocabulary:
+    source: inline
+    dataset: synthetic
+    expected_num_classes: 3
+    class_names: [background, object_a, object_b]
+  query:
+    mode: closed_set_all_classes
+    prompt_template: "segmentation mask of {class_name}"
+    batch_size: 3

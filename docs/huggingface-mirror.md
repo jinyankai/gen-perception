@@ -33,9 +33,9 @@ Resolve a repository revision without downloading files:
 ```bash
 python scripts/hf_download.py \
   --repo-type model \
-  --repo-id stable-diffusion-v1-5/stable-diffusion-v1-5 \
+  --repo-id stabilityai/stable-diffusion-2 \
   --revision main \
-  --local-dir "$MODEL_CACHE/stable-diffusion-v1-5" \
+  --local-dir "$MODEL_CACHE/stable-diffusion-2" \
   --metadata-only
 ```
 

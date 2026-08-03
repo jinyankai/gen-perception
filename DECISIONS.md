@@ -44,3 +44,36 @@
 - Reason: the user explicitly prefers to operate the server and wants agent time focused on local implementation and evidence analysis.
 - Evidence rule: only user-returned output establishes remote state. Interrupted or timed-out attempts remain unverified.
 - Safety: credentials are never persisted in Git, agent memory, scripts, command examples, or logs.
+
+## D008 - Task-token cross-attention with one shared SD2 U-Net
+
+- Date: 2026-08-03
+- Decision: stage one uses one Stable Diffusion 2 U-Net for segmentation, depth, and normals. Every forward pass includes learned task tokens; optional CLIP text tokens are concatenated for text-controllable tasks and injected through the U-Net cross-attention layers.
+- Trainability: VAE and CLIP remain frozen; `conv_in`, cross-attention, task embeddings, and task adapters are trainable by default.
+- Reason: the reference pipelines share the same latent denoising mechanism, while their empty-text conditions cannot identify the task after weights are unified.
+
+## D009 - Task adapters operate on condition tokens in v1
+
+- Date: 2026-08-03
+- Decision: each task owns a residual bottleneck adapter in the cross-attention condition space. The adapted tokens are consumed at every U-Net scale; there are no task-specific U-Net copies.
+- Reason: this is the smallest task-specific capacity that preserves a genuinely shared backbone and remains easy to test and checkpoint.
+- Escalation rule: add task-specific attention processors or LoRA only after controlled multi-task experiments show negative transfer that sampling and loss balancing do not resolve.
+
+## D010 - Config inheritance and task-homogeneous batches
+
+- Date: 2026-08-03
+- Decision: model defaults live in `configs/base/model.yaml` and are recursively deep-merged into experiment configs. Multi-task training switches tasks between homogeneous batches.
+- Reason: one model source prevents configuration drift; homogeneous batches avoid mixing incompatible target semantics, resolutions, masks, and prompt policies inside one batch.
+
+## D011 - Closed-set segmentation queries are dataset-owned
+
+- Date: 2026-08-03
+- Decision: ADE20K evaluation loads the complete 150-class taxonomy from the official `objectInfo150.txt` metadata and queries all classes when class-wise text inference is used. No query-planning API accepts a ground-truth mask.
+- Reason: standard mIoU must include false positives and absent classes according to the dataset protocol; filtering by GT-present classes leaks evaluation labels and inflates results.
+- Extension: user-provided or independently generated vocabularies are allowed only as separately labeled open-vocabulary experiments.
+
+## D012 - Deterministic codecs precede optional learned target adaptation
+
+- Date: 2026-08-03
+- Decision: `TargetCodec` owns task semantics, validity, channel canonicalization, and the `[-1,1]` VAE input range. An optional per-task `ResidualPreVAEAdapter` may learn a bounded three-channel residual and is disabled by default.
+- Reason: an unconstrained raw-target-to-RGB CNN can misuse discrete class IDs, collapse representations, or hide protocol errors. Zero-initialized residual adaptation gives an identity starting point and a controlled ablation.

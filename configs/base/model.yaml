@@ -1,9 +1,47 @@
+runtime:
+  device: auto
+  distributed: disabled
+  compile: false
+
 model:
-  pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-v1-5"
+  backbone:
+    family: stable-diffusion-2
+    pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-2"
+    image_latent_channels: 4
+    target_latent_channels: 4
+    conv_in_initialization: repeat_half
   prediction_type: epsilon
   freeze_vae: true
   freeze_text_encoder: true
-  task_conditioning: learned_token
+  shared_unet:
+    trainable_scope: cross_attention
+  conditioning:
+    type: task_token_cross_attention
+    task_names: [segmentation, depth, normal]
+    cross_attention_dim: 1024
+    text_input_dim: 1024
+    num_task_tokens: 4
+    dropout: 0.0
+  condition_adapter:
+    type: residual_bottleneck
+    placement: condition_tokens
+    per_task: true
+    bottleneck_dim: 256
+    residual_scale_init: 0.0
+  target_adapter:
+    enabled: false
+    type: residual_cnn
+    placement: pre_vae
+    per_task: true
+    task_names: [segmentation, depth, normal]
+    channels: 3
+    hidden_channels: 32
+    num_blocks: 2
+    residual_scale_init: 1.0
+    output_range: [-1.0, 1.0]
   noise:
     type: gaussian
-    multi_scale: false
+    multi_scale:
+      enabled: true
+      strength: 0.9
+      annealed: true

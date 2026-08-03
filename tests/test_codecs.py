@@ -5,12 +5,22 @@ import numpy as np
 from perception_diffusion.codecs import (
     DepthCodec,
     NormalCodec,
+    SegmentationBinaryMaskCodec,
     SegmentationIdCodec,
     SegmentationPaletteCodec,
 )
 
 
 class SegmentationCodecTest(unittest.TestCase):
+    def test_binary_query_mask_round_trip_uses_vae_range(self):
+        mask = np.array([[0, 1], [1, 0]], dtype=np.uint8)
+        codec = SegmentationBinaryMaskCodec()
+        encoded = codec.encode(mask)
+
+        self.assertEqual(-1.0, float(encoded.values.min()))
+        self.assertEqual(1.0, float(encoded.values.max()))
+        np.testing.assert_array_equal(mask, codec.decode(encoded.values))
+
     def setUp(self):
         self.labels = np.array([[0, 1, 255], [2, 1, 0]], dtype=np.int64)
 
@@ -43,7 +53,11 @@ class DepthCodecTest(unittest.TestCase):
                 codec = DepthCodec(0.1, 10.0, representation)
                 encoded = codec.encode(depth)
                 decoded = codec.decode(encoded.values, encoded.valid_mask)
-                np.testing.assert_allclose(decoded[encoded.valid_mask], depth[encoded.valid_mask], rtol=1e-5)
+                np.testing.assert_allclose(
+                    decoded[encoded.valid_mask],
+                    depth[encoded.valid_mask],
+                    rtol=1e-5,
+                )
                 self.assertTrue(np.isnan(decoded[1, 1]))
 
 

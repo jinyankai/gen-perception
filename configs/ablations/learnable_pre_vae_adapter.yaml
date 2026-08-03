@@ -1,0 +1,9 @@
+defaults:
+  - ../multitask/stage1_shared_unet.yaml
+
+experiment:
+  name: stage1-learnable-pre-vae-adapter-ablation
+
+model:
+  target_adapter:
+    enabled: true

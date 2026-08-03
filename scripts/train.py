@@ -15,7 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from perception_diffusion.utils.config import load_config  # noqa: E402
+from perception_diffusion.utils.config import (  # noqa: E402
+    configured_task_names,
+    load_config,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,11 +33,21 @@ def main() -> int:
     args = parse_args()
     config = load_config(args.config)
     if args.dry_run:
+        task_names = configured_task_names(config)
+        model_config = config["model"]
         summary = {
             "status": "CONFIG_VALIDATED",
             "config": str(args.config),
             "task": config["task"]["name"],
+            "tasks": list(task_names),
             "experiment": config["experiment"]["name"],
+            "architecture": "task-token-cross-attention-shared-unet",
+            "backbone": model_config["backbone"]["family"],
+            "trainable_scope": model_config["shared_unet"]["trainable_scope"],
+            "condition_adapter_placement": model_config["condition_adapter"][
+                "placement"
+            ],
+            "target_adapter_enabled": model_config["target_adapter"]["enabled"],
             "resume": None if args.resume is None else str(args.resume),
             "formal_training_started": False,
         }
