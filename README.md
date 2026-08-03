@@ -22,10 +22,12 @@ clean image latent + noisy target latent + timestep + task/text condition
 - Pretrained tokenizer/CLIP/VAE/U-Net offline CPU load and project 8-channel denoiser forward: passed in user-operated server smoke S002.
 - ADE20K and NYUv2 local asset/sample codec checks: passed in S002.
 - ADE20K segmentation and NYUv2 depth/derived-normal Dataset/DataLoader, download, preprocessing, and real-sample smoke CLIs: implemented locally; server real-sample execution is pending.
-- Raw dataset -> codec is implemented; codec -> VAE -> shared U-Net -> decode/evaluate is not yet integrated end to end.
+- Reusable offline SD2 loader, Visual Latent Pathway, annealed multi-resolution noise, real optimizer/checkpoint/logging runner, end-to-end inference, VAE fidelity analysis, and condition diagnostics: implemented with local tests.
+- Three-task real training, reconstruction, overfit, decoded inference, and condition-visualization runs: code-ready; server execution evidence pending.
 - Formal training/evaluation: not yet run.
 
 See `docs/unified-perception-framework.md` for the technical design and `STATUS.md`, `BLOCKERS.md`, and `EXPERIMENTS.md` for evidence-backed state.
+Use `docs/run-cookbook.md` for the user-operated real-data/GPU gates.
 
 ## Environment
 
@@ -50,6 +52,13 @@ python -m unittest discover -s tests -p 'test_*.py'
 python scripts/validate_configs.py
 python scripts/train.py --config configs/smoke.yaml --dry-run
 python scripts/framework_smoke.py --config configs/multitask/stage1_shared_unet.yaml
+```
+
+Real training and inference are intentionally not part of the local canonical check because they require the prepared SD2 snapshot, datasets, and an allocated GPU:
+
+```bash
+python scripts/train.py --config configs/overfit/depth.yaml --device cuda
+python scripts/infer.py --config configs/overfit/depth.yaml --checkpoint /path/to/step.pt --task depth --output-dir /path/to/inference
 ```
 
 ## Unified evaluation
@@ -83,14 +92,14 @@ in `[-1,1]`. A multitask config additionally requires `--task segmentation`, `de
 ```text
 configs/                  versioned experiment configuration
 perception_diffusion/     shared model, codec, data, evaluation, and utility code
-scripts/                  training/evaluation entry points, config checks, downloads, and operator helpers
+scripts/                  training, inference, reconstruction/condition analysis, evaluation, data, and operator entry points
 tests/                    fast protocol and unit tests
 evals/                    repository and research smoke gates
 docs/                     architecture, reproduction, and stage reports
 outputs/                  ignored experiment artifacts
 ```
 
-The local framework smoke is intentionally structural: it uses an injected tiny U-Net and scheduler to verify that all three task names share the same denoiser, loss, and sampling interfaces. S002 separately verifies that the real local SD2 components and dataset samples are readable and that a CPU denoiser forward is finite. Neither smoke is evidence of end-to-end real-data training, CUDA execution, decoded benchmark predictions, or formal metrics.
+The local framework smoke is intentionally structural: it uses an injected tiny U-Net and scheduler to verify that all three task names share the same denoiser, loss, and sampling interfaces. S002/S003 separately verify that the real local SD2 components and dataset samples are readable and that CPU/CUDA forwards are finite. The real train/infer code remains unverified until the cookbook produces checkpoint, loss, reconstruction, prediction, and metric artifacts.
 
 ## Evidence policy
 

@@ -19,6 +19,7 @@ class ExperimentPaths:
     checkpoints: Path
     predictions: Path
     visualizations: Path
+    tensorboard: Path
 
 
 def _git_commit(repo_root: Path) -> str:
@@ -42,7 +43,7 @@ def create_experiment_directory(
     command: Sequence[str],
     repo_root: str | Path,
 ) -> ExperimentPaths:
-    if task not in {"segmentation", "depth", "normal", "infrastructure"}:
+    if task not in {"segmentation", "depth", "normal", "multitask", "infrastructure"}:
         raise ValueError(f"unsupported experiment task: {task}")
     if not experiment_name or any(part in experiment_name for part in ("/", "\\", "..")):
         raise ValueError("experiment_name must be a single safe path component")
@@ -51,7 +52,8 @@ def create_experiment_directory(
     checkpoints = root / "checkpoints"
     predictions = root / "predictions"
     visualizations = root / "visualizations"
-    for directory in (checkpoints, predictions, visualizations):
+    tensorboard = root / "tensorboard"
+    for directory in (checkpoints, predictions, visualizations, tensorboard):
         directory.mkdir()
     (root / "config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8"
@@ -69,5 +71,6 @@ def create_experiment_directory(
         json.dumps(environment, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     (root / "train.log").touch()
+    (root / "metrics.jsonl").touch()
     (root / "metrics.json").write_text("{}\n", encoding="utf-8")
-    return ExperimentPaths(root, checkpoints, predictions, visualizations)
+    return ExperimentPaths(root, checkpoints, predictions, visualizations, tensorboard)

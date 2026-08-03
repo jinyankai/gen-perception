@@ -127,8 +127,24 @@ def _validate_model_config(
             raise ConfigError(f"{source}: model.{section} must be a mapping")
 
     backbone = model["backbone"]
+    if backbone.get("family") != "stable-diffusion-2":
+        raise ConfigError(f"{source}: model.backbone.family must be stable-diffusion-2")
     if not backbone.get("pretrained_model_path"):
         raise ConfigError(f"{source}: model.backbone.pretrained_model_path is required")
+    if not isinstance(backbone.get("require_download_manifest"), bool):
+        raise ConfigError(
+            f"{source}: model.backbone.require_download_manifest must be boolean"
+        )
+    for field in ("expected_repo_id", "expected_revision"):
+        if not isinstance(backbone.get(field), str) or not backbone[field].strip():
+            raise ConfigError(f"{source}: model.backbone.{field} must be non-empty")
+    expected_revision = backbone["expected_revision"]
+    if len(expected_revision) != 40 or any(
+        character not in "0123456789abcdefABCDEF" for character in expected_revision
+    ):
+        raise ConfigError(
+            f"{source}: model.backbone.expected_revision must be a 40-character SHA"
+        )
     _require_positive_integer(
         backbone.get("image_latent_channels"),
         "model.backbone.image_latent_channels",
@@ -146,6 +162,8 @@ def _validate_model_config(
         raise ConfigError(
             f"{source}: unsupported model.backbone.conv_in_initialization"
         )
+    if model.get("prediction_type") != "epsilon":
+        raise ConfigError(f"{source}: model.prediction_type must be epsilon")
 
     conditioning = model["conditioning"]
     if conditioning.get("type") != "task_token_cross_attention":
@@ -172,6 +190,9 @@ def _validate_model_config(
         raise ConfigError(f"{source}: model.conditioning.dropout must be numeric")
     if not 0.0 <= float(dropout) < 1.0:
         raise ConfigError(f"{source}: model.conditioning.dropout must be in [0,1)")
+    for field in ("use_task_condition", "use_text_condition"):
+        if not isinstance(conditioning.get(field, True), bool):
+            raise ConfigError(f"{source}: model.conditioning.{field} must be boolean")
 
     if model["shared_unet"].get("trainable_scope") not in {
         "full",
@@ -236,6 +257,39 @@ def _validate_model_config(
         raise ConfigError(
             f"{source}: model.target_adapter.output_range must be [-1.0, 1.0]"
         )
+
+    noise = model.get("noise")
+    if not isinstance(noise, dict) or noise.get("type") != "gaussian":
+        raise ConfigError(f"{source}: model.noise.type must be gaussian")
+    multi_scale = noise.get("multi_scale")
+    if not isinstance(multi_scale, dict):
+        raise ConfigError(f"{source}: model.noise.multi_scale must be a mapping")
+    for field in ("enabled", "annealed"):
+        if not isinstance(multi_scale.get(field), bool):
+            raise ConfigError(f"{source}: model.noise.multi_scale.{field} must be boolean")
+    strength = multi_scale.get("strength")
+    if (
+        not isinstance(strength, (int, float))
+        or isinstance(strength, bool)
+        or not 0.0 <= float(strength) <= 1.0
+    ):
+        raise ConfigError(
+            f"{source}: model.noise.multi_scale.strength must lie in [0,1]"
+        )
+    if multi_scale.get("downscale_strategy") not in {
+        "original",
+        "every_layer",
+        "power_of_two",
+        "random_step",
+    }:
+        raise ConfigError(
+            f"{source}: unsupported model.noise.multi_scale.downscale_strategy"
+        )
+    _require_positive_integer(
+        multi_scale.get("max_levels"),
+        "model.noise.multi_scale.max_levels",
+        source,
+    )
 
 
 def _validate_runtime(runtime: Any, *, source: str) -> None:
@@ -445,9 +499,67 @@ def validate_config(config: dict[str, Any], *, source: str = "<memory>") -> None
     task_batch_homogeneous = training.get("task_batch_homogeneous")
     if task_batch_homogeneous is not True:
         raise ConfigError(f"{source}: training.task_batch_homogeneous must be true")
+    if training.get("mixed_precision") not in {"no", "fp32", "fp16", "bf16"}:
+        raise ConfigError(f"{source}: unsupported training.mixed_precision")
+    for field in ("gradient_accumulation_steps", "checkpoint_every", "log_every"):
+        _require_positive_integer(training.get(field), f"training.{field}", source)
+    gradient_clip = training.get("gradient_clip_norm")
+    if (
+        not isinstance(gradient_clip, (int, float))
+        or isinstance(gradient_clip, bool)
+        or float(gradient_clip) <= 0
+    ):
+        raise ConfigError(f"{source}: training.gradient_clip_norm must be positive")
+    for field in ("gradient_checkpointing", "sample_vae_posterior"):
+        if not isinstance(training.get(field), bool):
+            raise ConfigError(f"{source}: training.{field} must be boolean")
+    maximum_samples = training.get("max_samples")
+    if maximum_samples is not None:
+        _require_positive_integer(maximum_samples, "training.max_samples", source)
+    optimizer = training.get("optimizer")
+    if not isinstance(optimizer, dict) or optimizer.get("name") != "adamw":
+        raise ConfigError(f"{source}: training.optimizer.name must be adamw")
+    for field in (
+        "shared_unet_lr",
+        "conditioner_lr",
+        "adapter_lr",
+        "target_adapter_lr",
+    ):
+        value = optimizer.get(field)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or float(value) <= 0
+        ):
+            raise ConfigError(f"{source}: training.optimizer.{field} must be positive")
+    lr_scheduler = training.get("lr_scheduler")
+    if not isinstance(lr_scheduler, dict) or lr_scheduler.get("name") not in {
+        "constant",
+        "linear",
+        "cosine",
+    }:
+        raise ConfigError(f"{source}: unsupported training.lr_scheduler.name")
+    warmup_steps = lr_scheduler.get("warmup_steps")
+    if (
+        not isinstance(warmup_steps, int)
+        or isinstance(warmup_steps, bool)
+        or warmup_steps < 0
+        or warmup_steps >= max_steps
+    ):
+        raise ConfigError(f"{source}: lr warmup must lie in [0,max_steps)")
+    logging = training.get("logging")
+    if not isinstance(logging, dict) or not isinstance(logging.get("tensorboard"), bool):
+        raise ConfigError(f"{source}: training.logging.tensorboard must be boolean")
+    wandb = logging.get("wandb")
+    if not isinstance(wandb, dict) or not isinstance(wandb.get("enabled"), bool):
+        raise ConfigError(f"{source}: training.logging.wandb.enabled must be boolean")
+    if wandb.get("mode") not in {"offline", "online", "disabled"}:
+        raise ConfigError(f"{source}: unsupported training.logging.wandb.mode")
     inference = config["inference"]
     steps = inference.get("num_steps") if isinstance(inference, dict) else None
     if not isinstance(steps, int) or steps <= 0:
         raise ConfigError(f"{source}: inference.num_steps must be a positive integer")
+    if not isinstance(inference.get("ensemble_size"), int) or inference["ensemble_size"] <= 0:
+        raise ConfigError(f"{source}: inference.ensemble_size must be positive")
     _validate_model_config(config["model"], task_names, source=source)
     _validate_segmentation_evaluation(config, task_names, source=source)

@@ -32,11 +32,27 @@ class ClassVocabulary:
         return tuple(range(len(self.class_names)))
 
 
-def _split_ade20k_row(line: str) -> list[str]:
+def _split_ade20k_header(line: str) -> list[str]:
     tab_parts = [part.strip() for part in line.rstrip("\r\n").split("\t")]
-    if len(tab_parts) >= 6:
+    if len(tab_parts) > 1:
         return tab_parts
-    return re.split(r"\s+", line.strip(), maxsplit=5)
+    return re.split(r"\s+", line.strip())
+
+
+def _split_ade20k_row(
+    line: str,
+    *,
+    expected_columns: int,
+    name_column: int,
+) -> list[str]:
+    tab_parts = [part.strip() for part in line.rstrip("\r\n").split("\t")]
+    if len(tab_parts) > 1:
+        return tab_parts
+    if name_column != expected_columns - 1:
+        raise ValueError(
+            "whitespace-separated ADE20K metadata requires Name as the final column"
+        )
+    return re.split(r"\s+", line.strip(), maxsplit=expected_columns - 1)
 
 
 def load_ade20k_object_info(
@@ -47,11 +63,15 @@ def load_ade20k_object_info(
     metadata_path = Path(path)
     if not metadata_path.is_file():
         raise FileNotFoundError(metadata_path)
-    lines = [line for line in metadata_path.read_text(encoding="utf-8-sig").splitlines() if line]
+    lines = [
+        line
+        for line in metadata_path.read_text(encoding="utf-8-sig").splitlines()
+        if line.strip()
+    ]
     if len(lines) < 2:
         raise ValueError(f"ADE20K metadata is empty: {metadata_path}")
 
-    header = [field.casefold() for field in _split_ade20k_row(lines[0])]
+    header = [field.casefold() for field in _split_ade20k_header(lines[0])]
     try:
         index_column = header.index("idx")
         name_column = header.index("name")
@@ -60,7 +80,11 @@ def load_ade20k_object_info(
 
     indexed_names: list[tuple[int, str]] = []
     for line_number, line in enumerate(lines[1:], start=2):
-        fields = _split_ade20k_row(line)
+        fields = _split_ade20k_row(
+            line,
+            expected_columns=len(header),
+            name_column=name_column,
+        )
         if len(fields) <= max(index_column, name_column):
             raise ValueError(f"invalid ADE20K metadata row {line_number}")
         try:

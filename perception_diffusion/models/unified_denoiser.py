@@ -44,6 +44,8 @@ class UnifiedPerceptionDenoiser(nn.Module):
         task_names: str | Sequence[str],
         *,
         text_hidden_states: torch.Tensor | None = None,
+        use_task_condition: bool | None = None,
+        use_text_condition: bool | None = None,
         **unet_kwargs: object,
     ) -> UnifiedDenoiserOutput:
         if image_latent.ndim != 4 or noisy_target_latent.ndim != 4:
@@ -67,6 +69,8 @@ class UnifiedPerceptionDenoiser(nn.Module):
             task_names,
             batch_size=image_latent.shape[0],
             text_hidden_states=text_hidden_states,
+            use_task_condition=use_task_condition,
+            use_text_condition=use_text_condition,
         )
         model_input = torch.cat([image_latent, noisy_target_latent], dim=1)
         raw_output = self.shared_unet(

@@ -1,0 +1,32 @@
+defaults:
+  - ../multitask/stage1_shared_unet.yaml
+
+experiment:
+  name: overfit-multitask-4-per-task
+
+data:
+  datasets:
+    segmentation:
+      image_size: [256, 256]
+      num_workers: 0
+      horizontal_flip_probability: 0.0
+    depth:
+      image_size: [240, 320]
+      num_workers: 0
+      horizontal_flip_probability: 0.0
+    normal:
+      image_size: [240, 320]
+      num_workers: 0
+      horizontal_flip_probability: 0.0
+
+training:
+  max_steps: 300
+  max_samples: 4
+  batch_size: 1
+  mixed_precision: fp16
+  gradient_accumulation_steps: 1
+  checkpoint_every: 50
+  log_every: 1
+  lr_scheduler:
+    name: constant
+    warmup_steps: 0

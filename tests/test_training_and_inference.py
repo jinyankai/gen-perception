@@ -6,7 +6,11 @@ from torch import nn
 
 from perception_diffusion.inference import UnifiedLatentSampler
 from perception_diffusion.models import TaskTokenConditioner, UnifiedPerceptionDenoiser
-from perception_diffusion.training import UnifiedDiffusionTrainerCore, UnifiedLatentBatch
+from perception_diffusion.training import (
+    ConfiguredNoiseSampler,
+    UnifiedDiffusionTrainerCore,
+    UnifiedLatentBatch,
+)
 
 
 class _DenoisingUNet(nn.Module):
@@ -91,6 +95,30 @@ class UnifiedTrainingTest(unittest.TestCase):
             output.loss.backward()
             self.assertTrue(torch.isfinite(output.loss))
             self.assertIsNotNone(trainer.denoiser.shared_unet.conv_in.weight.grad)
+
+    def test_training_core_uses_configured_annealed_noise(self):
+        trainer, _ = _system()
+        trainer.noise_sampler = ConfiguredNoiseSampler(
+            enabled=True,
+            strength=0.9,
+            annealed=True,
+            downscale_strategy="original",
+            max_levels=4,
+        )
+        batch = UnifiedLatentBatch(
+            image_latent=torch.randn(2, 4, 8, 8),
+            clean_target_latent=torch.randn(2, 4, 8, 8),
+            task_name="depth",
+        )
+        output = trainer(
+            batch,
+            timesteps=torch.tensor([0, 9]),
+            generator=torch.Generator().manual_seed(17),
+        )
+
+        self.assertEqual((2, 4, 8, 8), tuple(output.sampled_noise.shape))
+        self.assertTrue(torch.isfinite(output.loss))
+        self.assertAlmostEqual(1.0, float(output.sampled_noise.std()), places=5)
 
     def test_same_sampler_switches_task_by_token(self):
         _, sampler = _system()

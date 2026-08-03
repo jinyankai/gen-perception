@@ -40,4 +40,42 @@ Prefer idempotent scripts under `scripts/operator/`. Do not claim a remote actio
 - The required `sd2-community/stable-diffusion-2` snapshot was obtained through `hf-mirror.com`, registered locally, and loaded offline. Default `huggingface.co` connectivity is still not established.
 - The S002 user-operated validator passed on CPU for the SD2 components, ADE20K/NYUv2 assets, codecs, and project 8-channel denoiser forward; see `../validation/stage1-assets-2026-08-03.md`.
 - The user subsequently reported an eight-GPU availability window. S003 passed the same real-SD2 integration forward on GPU 0; see `../validation/segmentation-cuda-forward-2026-08-03.md`.
-- The initial eight-rank NCCL command exceeded 60 seconds without rank-level output. Distributed execution remains unresolved; rerun the bounded checked-in smoke at two ranks and then eight ranks before any DDP launch.
+- The initial bare `torchrun --standalone` NCCL command exceeded 60 seconds; a later Gloo attempt also timed out, ruling out an NCCL-only cause. The user then confirmed that the static loopback launcher/Gloo method below succeeded. NCCL execution remains unresolved; rerun the bounded checked-in smoke at two ranks and then eight ranks before any DDP launch.
+
+## Known-good single-node distributed launch pattern
+
+On this host, do not use a PATH-resolved bare `torchrun --standalone` command as the default. Use all of the following:
+
+1. Invoke the environment interpreter explicitly: `/home/jinyankai/miniconda3/envs/gen-perception/bin/python -m torch.distributed.run`.
+2. Use static single-node rendezvous: `--nnodes=1 --node-rank=0 --master-addr=127.0.0.1`.
+3. Allocate a unique, currently unused `--master-port` for every concurrent launch.
+4. For a Gloo smoke, set `GLOO_SOCKET_IFNAME=lo`.
+5. Wrap smokes in `timeout` and retain the complete rank log.
+
+Canonical launcher-only shape:
+
+```bash
+GP_PYTHON=/home/jinyankai/miniconda3/envs/gen-perception/bin/python
+"$GP_PYTHON" -m torch.distributed.run \
+  --nnodes=1 \
+  --nproc-per-node=2 \
+  --node-rank=0 \
+  --master-addr=127.0.0.1 \
+  --master-port=<unique-unused-port> \
+  --no-python \
+  /bin/bash -lc 'echo "rank=$RANK local_rank=$LOCAL_RANK world=$WORLD_SIZE"'
+```
+
+For NCCL, retain the same exact interpreter and static rendezvous pattern, expose only allocated GPUs through `CUDA_VISIBLE_DEVICES`, and use the checked-in distributed smoke script. Do not infer NCCL success from the Gloo recovery.
+
+## Bounded real-component DDP gate
+
+The full-path segmentation DDP smoke is `scripts/operator/segmentation_ddp_training_gate.py`. It uses `DistributedSampler` and the unified DataLoader contract, then runs ADE20K image/query-mask encoding, frozen CLIP/VAE inference, the shared SD2 U-Net diffusion loss, DDP backward, optimizer update, and replica-consistency checks.
+
+Gate order:
+
+1. `scripts/operator/segmentation_training_gate.py --steps 1 --image-size 256` on one allocated GPU;
+2. `scripts/operator/distributed_cuda_smoke.py` on the intended GPU set with static loopback rendezvous;
+3. `scripts/operator/segmentation_ddp_training_gate.py --steps 1 --image-size 256` on the intended GPU set.
+
+Success requires every rank to emit `SEGMENTATION_DDP_TRAINING_GATE_PASSED`, a non-zero parameter update, finite loss/gradient values, and zero or tolerance-level replica checksum spread. The gate writes no checkpoint and must not be reported as a formal, full-resolution, or benchmark result.

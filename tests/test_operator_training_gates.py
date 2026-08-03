@@ -4,6 +4,9 @@ from types import SimpleNamespace
 import torch
 from torch import nn
 
+from scripts.operator.segmentation_ddp_training_gate import (
+    validate_replica_measurements,
+)
 from scripts.operator.segmentation_training_gate import (
     _optimizer_groups,
     _segmentation_sections,
@@ -62,6 +65,20 @@ class OperatorTrainingGateTest(unittest.TestCase):
             ),
             _segmentation_sections(multitask),
         )
+
+    def test_ddp_replica_measurements_require_updates_and_synced_parameters(self):
+        summary = validate_replica_measurements(
+            [0.1, 0.1],
+            [4.0, 4.0],
+            [8.0, 8.0],
+        )
+        self.assertEqual(0.0, summary["checksum_spread"])
+        with self.assertRaises(FloatingPointError):
+            validate_replica_measurements(
+                [0.1, 0.2],
+                [4.0, 5.0],
+                [8.0, 9.0],
+            )
 
 
 if __name__ == "__main__":

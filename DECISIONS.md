@@ -77,3 +77,16 @@
 - Date: 2026-08-03
 - Decision: `TargetCodec` owns task semantics, validity, channel canonicalization, and the `[-1,1]` VAE input range. An optional per-task `ResidualPreVAEAdapter` may learn a bounded three-channel residual and is disabled by default.
 - Reason: an unconstrained raw-target-to-RGB CNN can misuse discrete class IDs, collapse representations, or hide protocol errors. Zero-initialized residual adaptation gives an identity starting point and a controlled ablation.
+
+## D013 - Marigold-style annealed multi-resolution noise
+
+- Date: 2026-08-03
+- Decision: when enabled, training samples multi-resolution Gaussian fields and linearly scales their strength by `timestep / num_train_timesteps`, following the inspected Marigold reference behavior.
+- Reason: the previous YAML declared annealed multi-scale noise while the trainer sampled only standard Gaussian noise; implementing one configuration-driven sampler removes that behavior drift for all tasks.
+- Evidence boundary: local tests verify the formula, shape, reproducibility, variance, and trainer integration. Only real loss curves can establish usefulness.
+
+## D014 - Single-process real runner before DDP
+
+- Date: 2026-08-03
+- Decision: the standard runner supports real single-GPU training, checkpoint/resume, JSONL/TensorBoard, optional W&B, and end-to-end inference. It explicitly rejects DDP until the server NCCL gate passes.
+- Reason: a verified single-process closure is required before adding distributed failure modes; task differences remain outside the runner.

@@ -27,11 +27,11 @@ Formal targets:
 
 | Paper claim | Current code location | Config/runtime evidence | Status |
 | --- | --- | --- | --- |
-| Encode targets into a VAE-compatible image domain | `perception_diffusion/codecs/`, `models/target_adapters.py` | range/round-trip unit tests; real VAE image encode/decode shape smoke | codec domain and VAE component are individually validated; real task-target VAE reconstruction remains |
-| Add noise only to target latent | `training/unified_trainer.py` | scheduler-compatible structural test | basic epsilon objective implemented; annealed multi-scale noise pending |
-| Condition U-Net on image, timestep, and task/text | `models/conditioning.py`, `models/adapters.py`, `models/unified_denoiser.py` | shape/gradient tests plus real SD2 CPU forward with `[1,81,1024]` conditioning | real component and 8-channel wrapper integration validated on CPU; training and CUDA pending |
-| Decode task-consistent latent | `codecs/`, `evaluation/` | codec/evaluator unit tests | task protocols implemented; VAE-to-metric pipeline pending |
-| Multi-step latent sampling | `inference/latent_sampler.py` | finite two-step structural sampling | core implemented; real scheduler, VAE decode, and ensemble studies pending |
+| Encode targets into a VAE-compatible image domain | `perception_diffusion/codecs/`, `models/visual_latent.py`, `models/target_adapters.py` | range/round-trip and frozen-VAE gradient-boundary tests; real VAE image shape smoke | reusable code complete; real three-task reconstruction report pending |
+| Add noise only to target latent | `training/noise.py`, `training/unified_trainer.py` | annealing-rule, reproducibility, variance, and structural loss tests | Marigold-style annealed multi-scale noise implemented; real loss curve pending |
+| Condition U-Net on image, timestep, and task/text | `models/conditioning.py`, `models/adapters.py`, `models/unified_denoiser.py` | shape/gradient tests plus real SD2 forward with `[1,81,1024]` conditioning | real component and 8-channel wrapper integration validated on CPU and GPU 0; reusable-runner backward pending |
+| Decode task-consistent latent | `inference/runner.py`, `codecs/`, `evaluation/` | codec/evaluator and paired-file tests | end-to-end code implemented; real checkpoint predictions pending |
+| Multi-step latent sampling | `inference/latent_sampler.py`, `scripts/infer.py` | finite two-step structural sampling | real scheduler/VAE path wired; ensemble and latency runs pending |
 | Three tasks share the backbone | `task_specs.py`, `models/builder.py`, multitask config | task switch and common denoiser evidence | structurally verified; shared trained checkpoint pending |
 | Generate segmentation queries without GT leakage | `data/segmentation_vocabulary.py`, `inference/segmentation_queries.py` | ADE20K taxonomy/query tests | closed-set policy implemented; dataset evaluation pending |
 
@@ -50,7 +50,7 @@ Formal targets:
 2. CUDA tensor and one-GPU memory smoke test when a GPU is free.
 3. Pretrained VAE/CLIP/U-Net offline load and shape check. **Completed on CPU in S002.**
 4. Per-task synthetic one-batch forward/backward with tiny injected components. **Completed locally.**
-5. Per-task small real-data overfit.
+5. Per-task small real-data overfit using `configs/overfit/` and `docs/run-cookbook.md`.
 6. Per-task formal run only after all gates pass.
 7. Baseline inference in isolated environments with protocol-aligned output conversion.
 
@@ -64,5 +64,5 @@ Formal targets:
 
 - Codec/evaluator unit tests and a tiny latent-level three-task train/sample structural smoke have run locally.
 - Real SD2 tokenizer/text encoder/VAE/U-Net loading and a finite project-wrapped denoiser forward have run offline on CPU; ADE20K/NYUv2 sample assets and codecs were checked.
-- No real-data training/backward pass, full dataset adapter, decoded task prediction, CUDA execution, baseline, or formal benchmark has run.
+- No real-data training/backward pass, decoded task prediction from a trained checkpoint, baseline, or formal benchmark has run through the new reusable entry points.
 - No performance comparison or reproduction success is claimed.

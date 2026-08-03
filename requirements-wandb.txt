@@ -1,0 +1,2 @@
+# Optional online/offline W&B integration. Core runs use JSONL + TensorBoard.
+wandb>=0.21,<1

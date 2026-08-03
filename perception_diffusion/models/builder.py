@@ -41,6 +41,8 @@ def build_unified_denoiser(
         adapter_scale_init=float(condition_adapter["residual_scale_init"]),
         text_input_dim=int(conditioning["text_input_dim"]),
         dropout=float(conditioning["dropout"]),
+        use_task_condition=bool(conditioning.get("use_task_condition", True)),
+        use_text_condition=bool(conditioning.get("use_text_condition", True)),
     )
     model = UnifiedPerceptionDenoiser(
         shared_unet,

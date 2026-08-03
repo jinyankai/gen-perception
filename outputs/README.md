@@ -9,7 +9,9 @@ outputs/<task>/<experiment_name>/
   git_commit.txt
   environment.txt
   train.log
+  metrics.jsonl
   metrics.json
+  tensorboard/
   checkpoints/
   predictions/
   visualizations/

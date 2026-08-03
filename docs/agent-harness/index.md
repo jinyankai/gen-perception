@@ -13,10 +13,14 @@ This directory is the system of record for repository behavior that agents need.
 - `../stage-one-plan.md`: compressed 3-4 week milestone plan and acceptance gates.
 - `../unified-perception-framework.md`: task-token, shared U-Net, task-adapter architecture and engineering configuration.
 - `../huggingface-mirror.md`: mirror, cache, revision, license, and secret-handling workflow.
+- `../target-encoding-strategies.md`: deterministic three-task target representations and VAE fidelity metrics.
+- `../real-training-and-inference.md`: reusable SD2, training, checkpoint, logging, inference, and condition-ablation boundaries.
+- `../run-cookbook.md`: exact user-operated data, VAE, overfit, resume, inference, evaluation, and condition gates.
 - `../../STATUS.md`: confirmed environment facts, implemented boundary, unresolved verification, and next actions.
 - `../../EXPERIMENTS.md`: smoke and formal experiment registry with commit/config binding.
 - `../../REPORT.md`: stage report scaffold and evidence-qualified implementation snapshot.
 - `../validation/stage1-assets-2026-08-03.md`: user-returned server evidence for the stage-one asset and real SD2 CPU integration smoke.
+- `../validation/distributed-launcher-recovery-2026-08-03.md`: failure signature and known-good static loopback launcher pattern for this server.
 
 ## Maintenance
 

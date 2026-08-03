@@ -54,7 +54,12 @@ class ResidualPreVAEAdapter(nn.Module):
         nn.init.zeros_(self.output.weight)
         nn.init.zeros_(self.output.bias)
 
-    def forward(self, pixels: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        pixels: torch.Tensor,
+        task_names: str | Sequence[str] | None = None,
+    ) -> torch.Tensor:
+        del task_names
         if pixels.ndim != 4:
             raise ValueError(f"pre-VAE pixels must have shape [B,C,H,W], got {pixels.shape}")
         if pixels.shape[1] != self.output.out_channels:

@@ -37,6 +37,25 @@ class SegmentationVocabularyTest(unittest.TestCase):
         self.assertEqual(("wall", "building", "sky"), vocabulary.class_names)
         self.assertEqual((0, 1, 2), vocabulary.class_ids)
 
+    def test_official_whitespace_layout_preserves_multiword_names(self):
+        content = (
+            "Idx Ratio Train Val Name\n"
+            "1 0.3 1 1 screen door, screen\n"
+            "2 0.2 1 1 screen, silver screen, projection screen\n"
+            "3 0.1 1 1 chest of drawers, chest, bureau, dresser\n"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "objectInfo150.txt"
+            path.write_text(content, encoding="utf-8")
+            vocabulary = load_ade20k_object_info(
+                path, expected_num_classes=3
+            )
+
+        self.assertEqual(
+            ("screen door", "screen", "chest of drawers"),
+            vocabulary.class_names,
+        )
+
     def test_smoke_query_planner_always_returns_full_dataset_vocabulary(self):
         config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
         spec = build_task_specs(config)["segmentation"]

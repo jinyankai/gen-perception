@@ -11,6 +11,8 @@ from torch.nn import functional as F
 
 from perception_diffusion.models import UnifiedPerceptionDenoiser
 
+from .noise import ConfiguredNoiseSampler
+
 
 @dataclass(frozen=True)
 class UnifiedLatentBatch:
@@ -19,6 +21,8 @@ class UnifiedLatentBatch:
     task_name: str
     latent_valid_mask: torch.Tensor | None = None
     text_hidden_states: torch.Tensor | None = None
+    use_task_condition: bool | None = None
+    use_text_condition: bool | None = None
 
     def validate(self) -> None:
         if self.image_latent.ndim != 4 or self.clean_target_latent.ndim != 4:
@@ -78,10 +82,16 @@ def _masked_mse(
 class UnifiedDiffusionTrainerCore(nn.Module):
     """Compute the same epsilon-prediction loss for every task."""
 
-    def __init__(self, denoiser: UnifiedPerceptionDenoiser, noise_scheduler: Any) -> None:
+    def __init__(
+        self,
+        denoiser: UnifiedPerceptionDenoiser,
+        noise_scheduler: Any,
+        noise_sampler: ConfiguredNoiseSampler | None = None,
+    ) -> None:
         super().__init__()
         self.denoiser = denoiser
         self.noise_scheduler = noise_scheduler
+        self.noise_sampler = noise_sampler
 
     def forward(
         self,
@@ -89,13 +99,10 @@ class UnifiedDiffusionTrainerCore(nn.Module):
         *,
         noise: torch.Tensor | None = None,
         timesteps: torch.Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> DiffusionStepOutput:
         batch.validate()
         target = batch.clean_target_latent
-        if noise is None:
-            noise = torch.randn_like(target)
-        if noise.shape != target.shape:
-            raise ValueError("sampled noise must match clean target latent shape")
         if timesteps is None:
             timesteps = torch.randint(
                 0,
@@ -103,9 +110,27 @@ class UnifiedDiffusionTrainerCore(nn.Module):
                 (target.shape[0],),
                 device=target.device,
                 dtype=torch.long,
+                generator=generator,
             )
         if timesteps.shape != (target.shape[0],):
             raise ValueError("timesteps must have shape [B]")
+        if noise is None:
+            if self.noise_sampler is None:
+                noise = torch.randn(
+                    target.shape,
+                    device=target.device,
+                    dtype=target.dtype,
+                    generator=generator,
+                )
+            else:
+                noise = self.noise_sampler.sample_like(
+                    target,
+                    timesteps=timesteps,
+                    num_train_timesteps=_num_train_timesteps(self.noise_scheduler),
+                    generator=generator,
+                )
+        if noise.shape != target.shape:
+            raise ValueError("sampled noise must match clean target latent shape")
 
         noisy_target = self.noise_scheduler.add_noise(target, noise, timesteps)
         output = self.denoiser(
@@ -114,6 +139,8 @@ class UnifiedDiffusionTrainerCore(nn.Module):
             timesteps,
             batch.task_name,
             text_hidden_states=batch.text_hidden_states,
+            use_task_condition=batch.use_task_condition,
+            use_text_condition=batch.use_text_condition,
         )
         if output.sample.shape != noise.shape:
             raise ValueError(

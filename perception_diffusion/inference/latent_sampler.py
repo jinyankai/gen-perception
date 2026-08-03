@@ -45,6 +45,8 @@ class UnifiedLatentSampler:
         text_hidden_states: torch.Tensor | None = None,
         initial_noise: torch.Tensor | None = None,
         generator: torch.Generator | None = None,
+        use_task_condition: bool | None = None,
+        use_text_condition: bool | None = None,
     ) -> torch.Tensor:
         if image_latent.ndim != 4:
             raise ValueError("image_latent must have shape [B,C,H,W]")
@@ -85,6 +87,8 @@ class UnifiedLatentSampler:
                 timestep,
                 task_names,
                 text_hidden_states=text_hidden_states,
+                use_task_condition=use_task_condition,
+                use_text_condition=use_text_condition,
             )
             try:
                 step_output = self.scheduler.step(

@@ -7,6 +7,9 @@ model:
   backbone:
     family: stable-diffusion-2
     pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-2"
+    require_download_manifest: true
+    expected_repo_id: sd2-community/stable-diffusion-2
+    expected_revision: 2511124fabf8bf30c0ca9dccd9729e7f0f2fa669
     image_latent_channels: 4
     target_latent_channels: 4
     conv_in_initialization: repeat_half
@@ -22,6 +25,8 @@ model:
     text_input_dim: 1024
     num_task_tokens: 4
     dropout: 0.0
+    use_task_condition: true
+    use_text_condition: true
   condition_adapter:
     type: residual_bottleneck
     placement: condition_tokens
@@ -45,3 +50,21 @@ model:
       enabled: true
       strength: 0.9
       annealed: true
+      downscale_strategy: original
+      max_levels: 10
+
+training:
+  checkpoint_every: 500
+  log_every: 10
+  gradient_clip_norm: 1.0
+  gradient_checkpointing: true
+  sample_vae_posterior: false
+  lr_scheduler:
+    name: cosine
+    warmup_steps: 0
+  logging:
+    tensorboard: true
+    wandb:
+      enabled: false
+      mode: offline
+      project: gen-perception

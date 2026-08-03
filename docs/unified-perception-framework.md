@@ -1,6 +1,6 @@
 # 统一生成式感知框架技术方案
 
-状态：v1 架构、配置和 latent 级共享训练/采样核心已落地；真实 SD2 与数据闭环待实现
+状态：v1 三任务工程代码闭环已落地；真实 GPU 训练、重建、过拟合和正式测评证据待按 cookbook 生成
 阶段范围：语义分割、单目深度、表面法线  
 参考：`生成模型感知任务能力研究考核方案 (2).docx`、`MarigoldSemanticSegmentation/`
 
@@ -38,9 +38,9 @@ v1 必须满足以下不变量：
 1. 深度和法线都使用空文本条件。若合并为单一权重，模型没有可靠信号区分任务。
    - 当前处理：每个样本显式携带 `task_name`，用独立的可学习 task-token 组和任务条件 adapter 形成 cross-attention 条件；第 4.1 节给出接口和消融建议。
 2. 三套训练/推理代码高度重复，注册入口也不完整，后续修复容易发生行为漂移。
-   - 当前处理：三任务共用 `TaskSpec`、`UnifiedPerceptionDenoiser`、`UnifiedDiffusionTrainerCore` 和 `UnifiedLatentSampler`；真实数据到指标的完整 pipeline 仍是下一阶段工作。
+   - 当前处理：三任务共用 `TaskSpec`、`UnifiedPerceptionDenoiser`、`UnifiedDiffusionTrainerCore`、`UnifiedLatentSampler` 和配置驱动 runner；数据、VAE、优化器、checkpoint、解码与指标已连通，真实 GPU 证据仍需按 cookbook 运行。
 3. 分割参考实现按当前样本 GT 中出现的类别生成查询，属于 GT 信息泄漏；统一框架必须从数据集词表、用户文本或独立候选生成器获得类别。
-   - 当前处理：按考核推荐的 ADE20K-150 封闭集协议，从 `objectInfo150.txt` 生成全量类别查询；query planner 的 API 不接收 GT mask。
+   - 当前处理：按考核推荐的 ADE20K-150 封闭集协议，从 `objectInfo150.txt` 生成全量类别查询；验证/推理 query planner 的 API 不接收 GT mask。训练期可另行用 GT 平衡正负监督，但该 sampler 与测评候选入口隔离。
 4. 分割二值掩码的训练输入范围与推理解码假设不一致。所有输入 VAE 的目标都必须显式归一化到约定范围。
    - 当前处理：由确定性的 `TargetCodec` 定义语义、通道和值域并断言 `[-1,1]`；可学习 CNN 仅作为 codec 后的零初始化有界残差消融，不能替代协议转换。
 5. 参考代码包含硬编码路径和设备编号。统一框架只允许从配置和环境变量读取数据、模型和输出位置。
@@ -351,26 +351,26 @@ evaluation:
 - [x] 同一个 loss 核心和 latent sampler 跑通三任务前向、反向、非零梯度和两步采样；
 - [x] torch-only tiny U-Net/scheduler smoke，无需下载 Diffusers 权重。
 
-### M1：真实组件前向/反向
+### M1：真实组件前向/反向（代码完成，运行证据未完成）
 
-- [ ] 加载 revision-pinned SD2 VAE、CLIP、U-Net 和 scheduler；
-- [ ] 对三任务 codec 做 VAE 重建验证；
-- [ ] 接入退火多尺度噪声；mask-aware diffusion loss 核心已实现；
+- [x] 实现只读本地 SD2 VAE、CLIP、U-Net 和 scheduler 装载边界；
+- [x] 实现三任务 codec 的 VAE 重建可视化、数值报告和保真度排序；
+- [x] 接入 Marigold 风格按 timestep 线性退火的多分辨率噪声；
 - [ ] 在真实 U-Net 上验证前向、反向、可训练参数和显存。
 
 验收：每任务一个 batch 前后向无 NaN；只允许配置声明的参数产生梯度；checkpoint 可保存并恢复。
 
 ### M2：单任务闭环
 
-- [ ] 同一 trainer 依次完成 segmentation/depth/normal 小样本过拟合；
-- [ ] 同一 pipeline 根据 `task_name` 切换解码和评测；
-- [ ] 对齐 mIoU、AbsRel/δ1、法线角度指标。
+- [ ] 同一 trainer 依次完成 segmentation/depth/normal 小样本过拟合运行；
+- [x] 同一 pipeline 根据 `task_name` 切换解码、可视化和评测；
+- [x] 实现 mIoU、AbsRel/δ1、法线角度指标及 known-answer 单测。
 
 验收：三个任务均能在极小训练集上明显降低 loss，并生成结构正确、可复核的预测与指标文件。
 
 ### M3：多任务联合训练
 
-- [ ] round-robin 三任务训练；
+- [x] 实现 task-homogeneous DataLoader 的 round-robin 三任务训练；
 - [ ] 与相同初始化、步数和数据预算的单任务结果比较；
 - [ ] 完成 no-task-token、no-adapter、full-share、task-LoRA 等消融。
 
@@ -398,11 +398,19 @@ evaluation:
 - `perception_diffusion/models/unified_denoiser.py`：共享 U-Net 前向；
 - `perception_diffusion/models/builder.py`：配置驱动装配；
 - `perception_diffusion/models/target_adapters.py`：可选 pre-VAE residual CNN；
+- `perception_diffusion/models/pretrained.py`：本地 SD2/CLIP/VAE/scheduler 装载；
+- `perception_diffusion/models/visual_latent.py`：冻结 VAE、目标 adapter 和 latent mask；
 - `perception_diffusion/task_specs.py`：统一任务注册和构建入口；
 - `perception_diffusion/data/segmentation_vocabulary.py`：ADE20K/inline taxonomy 加载；
 - `perception_diffusion/inference/segmentation_queries.py`：完整类别查询规划；
 - `perception_diffusion/training/unified_trainer.py`：共享 mask-aware diffusion loss；
+- `perception_diffusion/training/noise.py`：Marigold 风格退火多分辨率噪声；
+- `perception_diffusion/training/runner.py`：真实数据优化、日志和 checkpoint/resume；
 - `perception_diffusion/inference/latent_sampler.py`：共享 scheduler 采样循环；
+- `perception_diffusion/inference/runner.py`：真实 VAE 解码、三任务输出和无 GT 泄漏分割查询；
+- `perception_diffusion/analysis/reconstruction.py`：VAE 重建保真度指标；
+- `scripts/train.py`、`scripts/infer.py`：真实训练与推理 CLI；
+- `scripts/analyze_vae_reconstruction.py`、`scripts/validate_conditions.py`：重建和条件正确性诊断；
 - `perception_diffusion/codecs/`：三任务目标表示；
 - `perception_diffusion/evaluation/`：三任务评测；
 - `configs/multitask/stage1_shared_unet.yaml`：第一阶段联合配置。
@@ -415,4 +423,4 @@ python scripts/framework_smoke.py \
   --config configs/multitask/stage1_shared_unet.yaml
 ```
 
-当前代码已跑通 torch-only 的三任务统一前向/反向/采样结构，但不等同于真实 SD2 训练或正式 benchmark。下一工程优先级是 M1：接入真实 SD2 VAE/CLIP/U-Net、退火多尺度噪声和数据 adapter，然后完成真实一批次 gate。
+当前代码已经具备三任务真实数据→codec→冻结 VAE→共享 U-Net→退火噪声训练→checkpoint→采样→解码→评测的单进程闭环，并保留 torch-only 快速门禁。它仍不等同于已经完成真实 SD2 训练或正式 benchmark：下一步须按 `docs/run-cookbook.md` 依次生成 VAE 重建、单任务过拟合、resume、解码推理和条件敏感性证据，再进入联合训练与正式测评。

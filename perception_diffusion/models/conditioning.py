@@ -28,6 +28,8 @@ class TaskTokenConditioner(nn.Module):
         adapter_scale_init: float = 0.0,
         text_input_dim: int | None = None,
         dropout: float = 0.0,
+        use_task_condition: bool = True,
+        use_text_condition: bool = True,
     ) -> None:
         super().__init__()
         self.task_names = validate_task_names(task_names)
@@ -35,9 +37,15 @@ class TaskTokenConditioner(nn.Module):
             raise ValueError("conditioning dimensions and token count must be positive")
         if not 0.0 <= dropout < 1.0:
             raise ValueError("dropout must be in [0,1)")
+        if not isinstance(use_task_condition, bool) or not isinstance(
+            use_text_condition, bool
+        ):
+            raise TypeError("condition switches must be boolean")
 
         self.cross_attention_dim = cross_attention_dim
         self.num_task_tokens = num_task_tokens
+        self.use_task_condition = use_task_condition
+        self.use_text_condition = use_text_condition
         self.task_to_id = {name: index for index, name in enumerate(self.task_names)}
         self.task_embeddings = nn.Embedding(
             len(self.task_names) * num_task_tokens, cross_attention_dim
@@ -90,6 +98,8 @@ class TaskTokenConditioner(nn.Module):
         *,
         batch_size: int,
         text_hidden_states: torch.Tensor | None = None,
+        use_task_condition: bool | None = None,
+        use_text_condition: bool | None = None,
     ) -> torch.Tensor:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -104,6 +114,20 @@ class TaskTokenConditioner(nn.Module):
 
         names = self._normalize_batch_tasks(task_names, batch_size)
         task_tokens = self._task_tokens(names, device=device)
+        task_enabled = (
+            self.use_task_condition
+            if use_task_condition is None
+            else use_task_condition
+        )
+        text_enabled = (
+            self.use_text_condition
+            if use_text_condition is None
+            else use_text_condition
+        )
+        if not isinstance(task_enabled, bool) or not isinstance(text_enabled, bool):
+            raise TypeError("condition switch overrides must be boolean")
+        if not task_enabled:
+            task_tokens = torch.zeros_like(task_tokens)
         if text_hidden_states is None:
             return self.dropout(task_tokens)
 
@@ -112,4 +136,6 @@ class TaskTokenConditioner(nn.Module):
             raise ValueError(
                 "projected text dimension does not match the U-Net cross-attention dimension"
             )
+        if not text_enabled:
+            text_tokens = torch.zeros_like(text_tokens)
         return self.dropout(torch.cat([task_tokens, text_tokens], dim=1))

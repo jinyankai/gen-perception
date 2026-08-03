@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from perception_diffusion.tasks import TASK_NAMES
 
@@ -139,6 +139,7 @@ def build_dataloader(
     num_workers: int | None = None,
     shuffle: bool | None = None,
     strict_protocol: bool = True,
+    max_samples: int | None = None,
 ) -> DataLoader[dict[str, Any]]:
     """Build a reproducibly seeded, task-homogeneous DataLoader."""
 
@@ -153,6 +154,10 @@ def build_dataloader(
         training=training,
         strict_protocol=strict_protocol,
     )
+    if max_samples is not None:
+        if max_samples <= 0:
+            raise ValueError("max_samples must be positive")
+        dataset = Subset(dataset, range(min(max_samples, len(dataset))))
     resolved_batch_size = int(batch_size or config["training"].get("batch_size", 1))
     resolved_workers = int(
         task_data.get("num_workers", config["data"].get("num_workers", 0))
