@@ -4,7 +4,7 @@ Last updated: 2026-08-03 Asia/Shanghai
 
 ## Stage
 
-Stage: server check and repository bootstrap
+Stage: local framework bootstrap and user-operated server handoff
 
 Status: partially complete
 
@@ -33,6 +33,7 @@ Status: partially complete
 - Server inventory and risk triage.
 - Stage-one scope and paper-to-code plan.
 - Configurable HF-Mirror environment and revision-pinned model/dataset downloader.
+- Durable collaboration boundary: the coding agent works locally and provides reviewed server scripts; the user runs them and returns logs.
 
 ## Not yet verified
 
@@ -40,12 +41,14 @@ Status: partially complete
 - Writable high-capacity data/model/output paths.
 - Dataset versions and canonical splits.
 - Stable Diffusion/Marigold/DiGSeg checkpoint availability.
+- Remote repository synchronization. A previous session initialized `.git`, but its fetch timed out from the client side, so the resulting branch state is unknown.
+- HF-Mirror connectivity from the server.
 - Training, inference, evaluation, or formal metrics.
 
 ## Next actions
 
-1. Implement and test target codecs and protocol-aligned evaluators without requiring a GPU.
-2. Create Python 3.11 environment after confirming storage placement.
-3. Obtain an approved writable high-capacity path for datasets, model cache, and outputs.
-4. Obtain a GPU window and run PyTorch/CUDA plus pretrained-component load smoke tests.
-5. Probe HF-Mirror from the server and resolve exact checkpoint revisions before download.
+1. Ask the user for read-only Git status, remote, and branch output; then provide the safe first-checkout command.
+2. After checkout, ask the user to run `scripts/operator/sync_server_repo.sh` and `scripts/operator/probe_hf_mirror.sh`, returning both outputs.
+3. Prepare, but do not remotely execute, the Python 3.11 environment setup after storage placement is confirmed.
+4. Obtain an approved writable high-capacity path for datasets, model cache, and outputs.
+5. Obtain a GPU window and provide the user a PyTorch/CUDA plus pretrained-component smoke-test script.

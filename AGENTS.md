@@ -28,6 +28,9 @@ This repository is optimized for coding-agent work. Keep this file short: it is 
 ## Tool and MCP Policy
 
 - Follow `docs/agent-harness/tools.md`.
+- Follow `docs/agent-harness/server-operator-contract.md` for every server-side action.
+- Do not connect to, control, or run commands on the research server. Prepare reviewed commands or scripts for the user to run, then continue from the returned logs.
+- Never store server credentials in the repository, agent memory, commands, or logs.
 - Do not use destructive commands or external network tools unless the task and approvals require them.
 - Record important tool outputs in the final answer: tests, evals, CI, logs, screenshots, traces, or exact files.
 

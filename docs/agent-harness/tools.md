@@ -9,6 +9,9 @@
 ## Safety
 
 - Do not expose secrets, tokens, credentials, or private data.
+- Do not connect to or operate the research server directly. Server commands are user-operated under `server-operator-contract.md`.
+- For each requested server action, provide the exact working directory, reviewed command or repository script, expected effects, expected evidence, and any relevant recovery step.
+- Treat user-returned logs as the only evidence that a server command completed; never infer completion from an interrupted or timed-out session.
 - Ask for approval before destructive operations, external writes, production access, or broad network actions.
 - Keep generated artifacts inside the repository unless the user asks for personal/global configuration.
 - Do not call `sudo`; the server account has no sudo access.

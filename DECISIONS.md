@@ -36,3 +36,11 @@
 - Decision: default China-accessible endpoint is `https://hf-mirror.com`, selected through `HF_ENDPOINT`; every download resolves to an immutable SHA and writes a manifest.
 - Reason: the official endpoint timed out from the server, while environment-based endpoint selection is supported by Hugging Face clients. The mirror remains overridable and is not embedded in model code.
 - Safety: no tokens in Git or logs; gated licenses must be accepted upstream; dataset provenance and benchmark splits are reviewed separately.
+
+## D007 - Server operations are user-operated
+
+- Date: 2026-08-03
+- Decision: the coding agent must not SSH into, control, or directly run commands on the research server. It prepares reviewed, copy-pasteable commands or repository scripts; the user executes them and returns logs.
+- Reason: the user explicitly prefers to operate the server and wants agent time focused on local implementation and evidence analysis.
+- Evidence rule: only user-returned output establishes remote state. Interrupted or timed-out attempts remain unverified.
+- Safety: credentials are never persisted in Git, agent memory, scripts, command examples, or logs.

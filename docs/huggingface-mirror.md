@@ -20,6 +20,14 @@ The endpoint is process-configurable and is not hard-coded in model modules.
 
 ## Connectivity and metadata probe
 
+First run the dependency-free connectivity probe and return its complete output:
+
+```bash
+bash scripts/operator/probe_hf_mirror.sh
+```
+
+This performs two small API requests and downloads no model or dataset artifacts.
+
 Resolve a repository revision without downloading files:
 
 ```bash

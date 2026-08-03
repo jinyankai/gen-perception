@@ -7,6 +7,7 @@ REQUIRED = [
     "docs/agent-harness/index.md",
     "docs/agent-harness/quality.md",
     "docs/agent-harness/tools.md",
+    "docs/agent-harness/server-operator-contract.md",
     "docs/agent-harness/review.md",
     "agents/skills/README.md",
     "STATUS.md",
@@ -24,6 +25,8 @@ REQUIRED = [
     "scripts/validate_configs.py",
     "scripts/hf_mirror_env.sh",
     "scripts/hf_download.py",
+    "scripts/operator/sync_server_repo.sh",
+    "scripts/operator/probe_hf_mirror.sh",
     "docs/huggingface-mirror.md",
 ]
 
