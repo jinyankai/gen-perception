@@ -10,6 +10,7 @@ This directory is the system of record for repository behavior that agents need.
 - `review.md`: self-review, agent-review, human-review, and PR response loop.
 - `../reproduction-plan.md`: paper-to-code map, protocol targets, and staged run plan.
 - `../stage-one-plan.md`: compressed 3-4 week milestone plan and acceptance gates.
+- `../huggingface-mirror.md`: mirror, cache, revision, license, and secret-handling workflow.
 
 ## Maintenance
 

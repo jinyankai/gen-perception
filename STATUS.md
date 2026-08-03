@@ -32,6 +32,7 @@ Status: partially complete
 - Repository operating contract and quality harness.
 - Server inventory and risk triage.
 - Stage-one scope and paper-to-code plan.
+- Configurable HF-Mirror environment and revision-pinned model/dataset downloader.
 
 ## Not yet verified
 
@@ -47,4 +48,4 @@ Status: partially complete
 2. Create Python 3.11 environment after confirming storage placement.
 3. Obtain an approved writable high-capacity path for datasets, model cache, and outputs.
 4. Obtain a GPU window and run PyTorch/CUDA plus pretrained-component load smoke tests.
-5. Resolve checkpoint access through an approved Hugging Face route or offline transfer.
+5. Probe HF-Mirror from the server and resolve exact checkpoint revisions before download.

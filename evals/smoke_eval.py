@@ -9,6 +9,22 @@ REQUIRED = [
     "docs/agent-harness/tools.md",
     "docs/agent-harness/review.md",
     "agents/skills/README.md",
+    "STATUS.md",
+    "BLOCKERS.md",
+    "DECISIONS.md",
+    "EXPERIMENTS.md",
+    "configs/smoke.yaml",
+    "perception_diffusion/codecs/segmentation.py",
+    "perception_diffusion/codecs/depth.py",
+    "perception_diffusion/codecs/normal.py",
+    "perception_diffusion/evaluation/segmentation.py",
+    "perception_diffusion/evaluation/depth.py",
+    "perception_diffusion/evaluation/normal.py",
+    "scripts/train.py",
+    "scripts/validate_configs.py",
+    "scripts/hf_mirror_env.sh",
+    "scripts/hf_download.py",
+    "docs/huggingface-mirror.md",
 ]
 
 

@@ -18,10 +18,11 @@
 
 ## B003 - Hugging Face unreachable from server
 
-- Status: OPEN
+- Status: MITIGATION IMPLEMENTED, CONNECTIVITY UNVERIFIED
 - Evidence: HTTPS probe to `huggingface.co` timed out; GitHub and PyPI succeeded.
 - Impact: Stable Diffusion, Marigold, and many baseline checkpoints cannot download through the default Hub route.
-- Minimum resolution: approved mirror/proxy, pre-populated shared cache, or offline transfer of exact checkpoints and licenses.
+- Current mitigation: standard `HF_ENDPOINT=https://hf-mirror.com` support plus an immutable-revision downloader and manifest.
+- Minimum resolution: verify mirror connectivity from the server; otherwise use an approved proxy, pre-populated shared cache, or offline transfer of exact checkpoints and licenses.
 - Non-blocked work: package installation from PyPI, source code, synthetic smoke tests, and evaluator implementation.
 
 ## B004 - Required datasets not located

@@ -33,6 +33,8 @@ python -m unittest discover -s tests -p 'test_*.py'
 
 PyTorch CUDA wheels are installed separately by `scripts/bootstrap_env.sh` so that the CUDA index is explicit and auditable.
 
+Because the server cannot currently reach the official Hugging Face endpoint, source `scripts/hf_mirror_env.sh` after setting an approved model-cache path. See `docs/huggingface-mirror.md`. Tokens are never stored in the repository.
+
 ## Canonical checks
 
 ```bash
@@ -64,3 +66,4 @@ Every formal result must bind the Git commit, frozen config, dataset version and
 - [Marigold official repository](https://github.com/prs-eth/Marigold)
 - [PyTorch installation guidance](https://pytorch.org/get-started/locally/)
 - [Diffusers installation guidance](https://huggingface.co/docs/diffusers/main/en/installation)
+- [HF-Mirror usage](https://hf-mirror.com/)

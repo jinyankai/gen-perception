@@ -29,3 +29,10 @@
 - Date: 2026-08-03
 - Decision: datasets, model caches, checkpoints, predictions, and logs are Git-ignored; Git stores configs, commands, summaries, and retrieval instructions.
 - Reason: artifact size, privacy, reproducibility, and credential safety.
+
+## D006 - Hugging Face mirror is explicit and revision-pinned
+
+- Date: 2026-08-03
+- Decision: default China-accessible endpoint is `https://hf-mirror.com`, selected through `HF_ENDPOINT`; every download resolves to an immutable SHA and writes a manifest.
+- Reason: the official endpoint timed out from the server, while environment-based endpoint selection is supported by Hugging Face clients. The mirror remains overridable and is not embedded in model code.
+- Safety: no tokens in Git or logs; gated licenses must be accepted upstream; dataset provenance and benchmark splits are reviewed separately.

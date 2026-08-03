@@ -14,7 +14,7 @@
 - Do not call `sudo`; the server account has no sudo access.
 - Do not stop or interfere with other users' GPU processes.
 - Do not write datasets, model weights, or environments to the nearly full system filesystem once a high-capacity project path is available.
-- Hugging Face is currently unreachable from the server. Do not add undocumented mirrors; use an approved mirror or an offline checkpoint transfer.
+- Hugging Face is currently unreachable from the server. Use the documented `HF_ENDPOINT` workflow in `docs/huggingface-mirror.md` or an approved offline checkpoint transfer.
 
 ## Evidence
 

@@ -1,0 +1,33 @@
+experiment:
+  name: ade20k-unified-v1
+  seed: 1337
+  output_root: "${OUTPUT_ROOT}"
+task:
+  name: segmentation
+  condition: "semantic segmentation"
+model:
+  pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-v1-5"
+  prediction_type: epsilon
+  freeze_vae: true
+  freeze_text_encoder: true
+  task_conditioning: learned_token
+data:
+  dataset: ade20k
+  root: "${DATA_ROOT}/ADEChallengeData2016"
+  split: training
+  validation_split: validation
+  image_size: [512, 512]
+  num_workers: 8
+training:
+  max_steps: 20000
+  batch_size: 2
+  learning_rate: 1.0e-5
+  mixed_precision: fp16
+  gradient_accumulation_steps: 4
+inference:
+  scheduler: ddim
+  num_steps: 10
+  ensemble_size: 1
+evaluation:
+  ignore_label: 255
+  num_classes: 150

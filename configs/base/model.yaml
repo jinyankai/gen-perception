@@ -1,0 +1,9 @@
+model:
+  pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-v1-5"
+  prediction_type: epsilon
+  freeze_vae: true
+  freeze_text_encoder: true
+  task_conditioning: learned_token
+  noise:
+    type: gaussian
+    multi_scale: false

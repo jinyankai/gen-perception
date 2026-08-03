@@ -1,0 +1,37 @@
+experiment:
+  name: synthetic-segmentation-smoke
+  seed: 1337
+  output_root: outputs
+
+task:
+  name: segmentation
+  condition: "semantic segmentation"
+
+model:
+  pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-v1-5"
+  prediction_type: epsilon
+  freeze_vae: true
+  freeze_text_encoder: true
+  task_conditioning: learned_token
+
+data:
+  dataset: synthetic
+  root: null
+  image_size: [64, 64]
+  num_workers: 0
+
+training:
+  max_steps: 10
+  batch_size: 1
+  learning_rate: 1.0e-4
+  mixed_precision: "no"
+  gradient_accumulation_steps: 1
+
+inference:
+  scheduler: ddim
+  num_steps: 2
+  ensemble_size: 1
+
+evaluation:
+  ignore_label: 255
+  num_classes: 3
