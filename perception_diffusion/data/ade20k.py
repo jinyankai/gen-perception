@@ -136,19 +136,11 @@ class ADE20KDataset(Dataset[dict[str, Any]]):
             return int(present[torch.randint(present.numel(), ())].item())
         return int(torch.randint(self.num_classes, ()).item())
 
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        image_path, mask_path, relative_id = self.records[index]
-        with Image.open(image_path) as handle:
-            image = np.asarray(handle.convert("RGB"), dtype=np.uint8)
+    def _read_source_labels(self, mask_path: Path) -> np.ndarray:
         with Image.open(mask_path) as handle:
             source_labels = np.asarray(handle)
         if source_labels.ndim != 2:
             raise ValueError(f"ADE20K mask must be HxW, got {source_labels.shape}: {mask_path}")
-        if image.shape[:2] != source_labels.shape:
-            raise ValueError(
-                f"ADE20K image/mask shape mismatch for {relative_id}: "
-                f"{image.shape[:2]} vs {source_labels.shape}"
-            )
         if not np.issubdtype(source_labels.dtype, np.integer):
             raise TypeError(f"ADE20K mask must contain integer IDs: {mask_path}")
         if int(source_labels.min()) < 0 or int(source_labels.max()) > 150:
@@ -156,10 +148,40 @@ class ADE20KDataset(Dataset[dict[str, Any]]):
                 f"ADE20K source labels must lie in 0..150, got "
                 f"{int(source_labels.min())}..{int(source_labels.max())}: {mask_path}"
             )
-        original_size = image.shape[:2]
+        return source_labels
+
+    @staticmethod
+    def _map_source_labels(source_labels: np.ndarray) -> np.ndarray:
+        """Map official 1..150 (0=unlabeled) to model IDs 0..149 (255=ignore)."""
+
         labels = np.full(source_labels.shape, 255, dtype=np.int64)
         source_valid = source_labels > 0
         labels[source_valid] = source_labels[source_valid].astype(np.int64) - 1
+        return labels
+
+    def load_native_labels(self, index: int) -> np.ndarray:
+        """Return native-resolution HxW int64 labels (0..149, 255=ignore).
+
+        Unlike ``native_target`` in ``__getitem__``, these are never resized to
+        the model input size, so evaluation can score at the dataset's native
+        resolution rather than the 512x512 latent-decode resolution.
+        """
+
+        _, mask_path, _ = self.records[index]
+        return self._map_source_labels(self._read_source_labels(mask_path))
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        image_path, mask_path, relative_id = self.records[index]
+        with Image.open(image_path) as handle:
+            image = np.asarray(handle.convert("RGB"), dtype=np.uint8)
+        source_labels = self._read_source_labels(mask_path)
+        if image.shape[:2] != source_labels.shape:
+            raise ValueError(
+                f"ADE20K image/mask shape mismatch for {relative_id}: "
+                f"{image.shape[:2]} vs {source_labels.shape}"
+            )
+        original_size = image.shape[:2]
+        labels = self._map_source_labels(source_labels)
 
         image_tensor = rgb_to_vae_tensor(image, self.image_size)
         label_tensor = resize_labels(labels, self.image_size)

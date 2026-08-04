@@ -82,6 +82,23 @@ class SegmentationVocabularyTest(unittest.TestCase):
             np.array([[0, 1], [2, 2]], dtype=np.int64),
             merge_query_scores(scores, queries),
         )
+        # valid_mask forces masked-out pixels to ignore instead of argmax class 0.
+        valid_mask = np.array([[True, True], [False, True]], dtype=bool)
+        np.testing.assert_array_equal(
+            np.array([[0, 1], [255, 2]], dtype=np.int64),
+            merge_query_scores(scores, queries, valid_mask=valid_mask),
+        )
+        # confidence_threshold ignores pixels whose winning score is too low.
+        np.testing.assert_array_equal(
+            np.array([[0, 1], [255, 2]], dtype=np.int64),
+            merge_query_scores(scores, queries, confidence_threshold=0.75),
+        )
+        with self.assertRaises(ValueError):
+            merge_query_scores(scores, queries, confidence_threshold=1.5)
+        with self.assertRaises(ValueError):
+            merge_query_scores(
+                scores, queries, valid_mask=np.ones((3, 3), dtype=bool)
+            )
 
 
 class TaskSpecTest(unittest.TestCase):

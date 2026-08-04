@@ -83,6 +83,38 @@ class ADE20KDatasetTest(unittest.TestCase):
             self.assertEqual("segmentation", batch["task_name"])
             self.assertEqual((2, 3, 4, 6), tuple(batch["image"].shape))
 
+    def test_load_native_labels_returns_unresized_mapped_ids(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "ADEChallengeData2016"
+            self.make_fixture(root)
+
+            # Request a model input size (8x12) that differs from the native
+            # 4x6 mask so a resize would be observable if it leaked in.
+            dataset = ADE20KDataset(
+                root,
+                split="train",
+                image_size=(8, 12),
+                codec=SegmentationBinaryMaskCodec(),
+                query_sampling="first_present",
+                strict_protocol=False,
+            )
+            native = dataset.load_native_labels(0)
+            self.assertEqual((4, 6), native.shape)
+            self.assertEqual(np.int64, native.dtype)
+            expected = np.array(
+                [
+                    [255, 0, 0, 1, 1, 1],
+                    [255, 0, 0, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1],
+                    [0, 0, 0, 1, 1, 1],
+                ],
+                dtype=np.int64,
+            )
+            np.testing.assert_array_equal(expected, native)
+            # __getitem__'s native_target is resized to the model input size,
+            # confirming load_native_labels bypasses that resize.
+            self.assertEqual((1, 8, 12), tuple(dataset[0]["native_target"].shape))
+
     def test_config_driven_dataloader_builds_homogeneous_batch(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "ADEChallengeData2016"

@@ -8,9 +8,11 @@ from typing import Any, Literal
 
 import numpy as np
 import torch
+from torch.utils.data import Subset
 
 from perception_diffusion.codecs import SegmentationBinaryMaskCodec
 from perception_diffusion.data import build_dataloader
+from perception_diffusion.data.transforms import resize_labels
 from perception_diffusion.models import load_pretrained_system
 from perception_diffusion.task_specs import (
     build_segmentation_query_planner,
@@ -182,6 +184,9 @@ def run_inference(
         planner = build_segmentation_query_planner(spec)
         queries = planner.all_queries()
         query_batch_size = int(spec.query_config["query"]["batch_size"])  # type: ignore[index]
+        native_dataset = loader.dataset
+        if isinstance(native_dataset, Subset):
+            native_dataset = native_dataset.dataset
         for raw_batch in loader:
             for sample_index, sample_id in enumerate(raw_batch["sample_id"]):
                 image = raw_batch["image"][sample_index : sample_index + 1].to(system.device)
@@ -223,17 +228,34 @@ def run_inference(
                         spec.codec.decode_scores(sample.cpu().numpy(), valid)
                         for sample in decoded
                     )
-                prediction = merge_query_scores(np.stack(score_maps), queries)
-                target = raw_batch["native_target"][sample_index, 0].cpu().numpy()
+                prediction_512 = merge_query_scores(
+                    np.stack(score_maps), queries, valid_mask=valid
+                )
+                native_gt = native_dataset.load_native_labels(
+                    int(raw_batch["source_index"][sample_index])
+                )
+                native_h, native_w = native_gt.shape
+                prediction = (
+                    resize_labels(prediction_512, (native_h, native_w))
+                    .cpu()
+                    .numpy()
+                    .astype(np.int64)
+                )
+                # Harmonize the prediction's ignore region to the native GT so
+                # scored (GT-valid) pixels always carry an in-range 0..149 label.
+                prediction[native_gt == 255] = 255
+                native_valid = native_gt != 255
                 safe_id = _safe_sample_id(str(sample_id))
                 np.save(roots["predictions"] / f"{safe_id}.npy", prediction)
-                np.save(roots["targets"] / f"{safe_id}.npy", target)
-                np.save(roots["valid_masks"] / f"{safe_id}.npy", valid)
+                np.save(roots["targets"] / f"{safe_id}.npy", native_gt)
+                np.save(roots["valid_masks"] / f"{safe_id}.npy", native_valid)
+                # The panel stays at the 512 decode resolution so it matches the
+                # VAE image tensor; the saved .npy arrays are native resolution.
                 save_prediction_panel(
                     task_name,
                     raw_batch["image"][sample_index],
-                    prediction,
-                    target,
+                    prediction_512,
+                    raw_batch["native_target"][sample_index, 0].cpu().numpy(),
                     roots["visualizations"] / f"{safe_id}.png",
                     valid_mask=valid,
                     num_classes=len(queries),

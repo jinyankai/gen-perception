@@ -10,6 +10,9 @@ from numpy.typing import NDArray
 from perception_diffusion.data import ClassVocabulary
 
 
+IGNORE_LABEL = 255
+
+
 @dataclass(frozen=True)
 class SegmentationQuery:
     class_id: int
@@ -61,8 +64,17 @@ class SegmentationQueryPlanner:
 def merge_query_scores(
     class_scores: NDArray[np.generic],
     queries: tuple[SegmentationQuery, ...],
+    *,
+    valid_mask: NDArray[np.generic] | None = None,
+    confidence_threshold: float | None = None,
 ) -> NDArray[np.int64]:
-    """Merge per-class score maps into closed-set semantic IDs."""
+    """Merge per-class score maps into closed-set semantic IDs.
+
+    ``valid_mask`` forces pixels outside the mask to ``IGNORE_LABEL`` so that
+    unlabeled regions are not silently absorbed by the ``argmax`` fallback.
+    ``confidence_threshold`` (default off) ignores pixels whose winning score
+    falls below it, mapping genuine no-confidence pixels to ``IGNORE_LABEL``.
+    """
 
     scores = np.asarray(class_scores, dtype=np.float32)
     if scores.ndim != 3:
@@ -75,4 +87,16 @@ def merge_query_scores(
         raise ValueError("class scores must be finite")
     class_ids = np.asarray([query.class_id for query in queries], dtype=np.int64)
     winners = np.argmax(scores, axis=0)
-    return class_ids[winners]
+    labels = class_ids[winners]
+    if confidence_threshold is not None:
+        if not 0.0 < confidence_threshold < 1.0:
+            raise ValueError("confidence_threshold must lie in (0,1)")
+        labels[np.max(scores, axis=0) < confidence_threshold] = IGNORE_LABEL
+    if valid_mask is not None:
+        valid = np.asarray(valid_mask, dtype=bool)
+        if valid.shape != labels.shape:
+            raise ValueError(
+                f"valid_mask shape {valid.shape} differs from scores {labels.shape}"
+            )
+        labels[~valid] = IGNORE_LABEL
+    return labels
