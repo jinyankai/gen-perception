@@ -1,0 +1,12 @@
+defaults:
+  - ./nyuv2.yaml
+
+experiment:
+  name: nyuv2-normal-vae-recon-576x768
+
+data:
+  # 3:4 aspect ratio matches NYUv2 native 480x640; avoids the square-crop
+  # distortion that inflated angular error at 512x512.
+  image_size: [576, 768]
+  num_workers: 0
+  horizontal_flip_probability: 0.0
