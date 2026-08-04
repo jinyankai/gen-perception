@@ -29,6 +29,11 @@ model_cache/
 checkpoints/
 outputs/**
 !outputs/README.md
+# W4 deliverable (singular output/): track only writeups, ignore generated run artifacts (D005)
+/output/*
+!/output/wk4/
+/output/wk4/*
+!/output/wk4/README.md
 wandb/
 runs/
 *.ckpt
