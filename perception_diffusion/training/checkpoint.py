@@ -81,7 +81,9 @@ def load_training_checkpoint(
     generator.set_state(payload["generator_state"].cpu())
     torch.set_rng_state(payload["torch_rng_state"].cpu())
     if torch.cuda.is_available() and payload.get("cuda_rng_state_all"):
-        torch.cuda.set_rng_state_all(payload["cuda_rng_state_all"])
+        torch.cuda.set_rng_state_all(
+            [state.cpu() for state in payload["cuda_rng_state_all"]]
+        )
     np.random.set_state(payload["numpy_rng_state"])
     random.setstate(payload["python_rng_state"])
     step = int(payload["step"])
