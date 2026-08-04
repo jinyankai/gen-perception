@@ -28,7 +28,7 @@ from perception_diffusion.visualization import vae_pixels_to_rgb  # noqa: E402
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--checkpoint", required=True, type=Path)
+    parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--task", required=True, choices=("segmentation", "depth", "normal"))
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--device", choices=("cpu", "cuda"))
@@ -68,12 +68,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         precision_override=args.precision,
         for_training=False,
     )
-    checkpoint_step = load_model_checkpoint(
-        args.checkpoint,
-        denoiser=system.denoiser,
-        target_adapter=system.visual_pathway.target_adapter,
-        device=system.device,
-    )
+    if args.checkpoint is not None:
+        checkpoint_step = load_model_checkpoint(
+            args.checkpoint,
+            denoiser=system.denoiser,
+            target_adapter=system.visual_pathway.target_adapter,
+            device=system.device,
+        )
+    else:
+        checkpoint_step = None
     task_data = (
         config["data"]["datasets"][args.task]
         if config["task"]["name"] == "multitask"
@@ -173,6 +176,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "formal_experiment": False,
         "sample_id": str(batch["sample_id"][0]),
         "checkpoint_step": checkpoint_step,
+        "checkpoint_loaded": args.checkpoint is not None,
         "model_path": str(system.model_path),
         "model_revision": system.model_revision,
         "seed": seed,

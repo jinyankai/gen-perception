@@ -6,10 +6,10 @@ runtime:
 model:
   backbone:
     family: stable-diffusion-2
-    pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-2"
+    pretrained_model_path: "${MODEL_CACHE}/stable-diffusion-2-base"
     require_download_manifest: true
-    expected_repo_id: sd2-community/stable-diffusion-2
-    expected_revision: 2511124fabf8bf30c0ca9dccd9729e7f0f2fa669
+    expected_repo_id: sd2-community/stable-diffusion-2-base
+    expected_revision: f5bc1bd97485577aa0b946fa8a9004e2ec147402
     image_latent_channels: 4
     target_latent_channels: 4
     conv_in_initialization: repeat_half

@@ -81,15 +81,22 @@ optional text prompt --> 冻结 CLIP text encoder --> Linear 投影到 cross_att
 python -m unittest tests.test_models tests.test_training_and_inference
 ```
 
-### 4.2 语义验证脚本（需要 checkpoint）
+### 4.2 敏感性验证脚本（无需 checkpoint，可直接用预训练权重）
+
+`--checkpoint` 现在**可选**。不传时，脚本直接在 `load_pretrained_system` 装配好的
+系统上验证——U-Net 已扩成 8 通道、任务 token 与 adapter 已随机初始化，模型本身就
+可前向。不同任务的 token 天生不同，`encoder_hidden_states` 就不同，输出必然变化，
+足以验证**接线敏感性**（W4 交付#2）。报告里 `checkpoint_loaded: false` 标明这一点。
 
 ```bash
 python scripts/validate_conditions.py \
   --config configs/multitask/stage1_shared_unet.yaml \
-  --checkpoint <CKPT> --task depth \
+  --task depth \
   --output-dir <OUT> --num-steps 4 \
   --prompt "a different textual concept"
 ```
+
+传 `--checkpoint <CKPT>`（正式或 overfit 权重）则可进一步看**语义正确性**：
 
 产物：每个变体一张 PNG、一张横向 `comparison.png`、以及 `condition_report.json`
 （含各变体相对 `full` 的 `latent_l2_from_full` / `latent_cosine_distance_from_full` /
@@ -98,7 +105,8 @@ python scripts/validate_conditions.py \
 **解读边界（脚本 `qualification` 字段也写明）**：非零差异只证明"条件被消费"，
 **不**证明语义正确。因此：
 
-- 只想看**敏感性**（条件确实生效）：任意 checkpoint，哪怕几十步 overfit 都行。
+- 只想看**敏感性**（条件确实生效）：**不传 `--checkpoint`**，直接用预训练权重即可；
+  传任意 overfit checkpoint 也行。
 - 想看**语义正确**（不同 prompt/task 给出各自正确结构）：需要正式或充分 overfit
   的 checkpoint。
 
