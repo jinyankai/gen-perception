@@ -1,0 +1,19 @@
+# DSINE surface-normal baseline env (D003: Python 3.11, CUDA 12.8 torch).
+# DSINE is loaded from its official repo checkout via torch.hub (source=local),
+# so also `git clone` the pinned DSINE commit and pass it via --dsine-repo.
+# Create with:
+#   conda create -n baseline-dsine python=3.11 -y
+#   conda activate baseline-dsine
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#   pip install geffnet pillow numpy   # geffnet: DSINE backbone dependency
+name: baseline-dsine
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch
+      - geffnet
+      - pillow
+      - numpy

@@ -1,0 +1,18 @@
+# Depth Anything V2 baseline env (D003: Python 3.11, CUDA 12.8 torch).
+# post_process_depth_estimation requires a recent transformers.
+# Create with:
+#   conda create -n baseline-depthanything python=3.11 -y
+#   conda activate baseline-depthanything
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#   pip install "transformers>=4.45" pillow numpy
+name: baseline-depthanything
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch
+      - transformers>=4.45
+      - pillow
+      - numpy

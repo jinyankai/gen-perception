@@ -1,0 +1,19 @@
+# Marigold depth + normals baseline env (D003: Python 3.11, CUDA 12.8 torch).
+# Create with:
+#   conda create -n baseline-marigold python=3.11 -y
+#   conda activate baseline-marigold
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#   pip install "diffusers>=0.34.0" transformers accelerate pillow numpy
+name: baseline-marigold
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch
+      - diffusers>=0.34.0
+      - transformers
+      - accelerate
+      - pillow
+      - numpy
