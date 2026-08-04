@@ -1,0 +1,8 @@
+defaults:
+  - ./stage1_shared_unet.yaml
+
+experiment:
+  name: stage1-shared-unet-multitask-vpred-v1
+
+model:
+  prediction_type: v_prediction
