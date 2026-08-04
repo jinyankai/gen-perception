@@ -1,0 +1,10 @@
+defaults:
+  - ./nyuv2.yaml
+
+experiment:
+  name: nyuv2-normal-vae-recon-512
+
+data:
+  image_size: [512, 512]
+  num_workers: 0
+  horizontal_flip_probability: 0.0
