@@ -60,6 +60,24 @@ def _num_train_timesteps(scheduler: Any) -> int:
     return value
 
 
+_SUPPORTED_PREDICTION_TYPES = ("epsilon", "v_prediction", "sample")
+
+
+def _scheduler_prediction_type(scheduler: Any) -> str:
+    config = getattr(scheduler, "config", None)
+    if isinstance(config, dict):
+        value = config.get("prediction_type", "epsilon")
+    else:
+        value = getattr(config, "prediction_type", "epsilon")
+    prediction_type = str(value)
+    if prediction_type not in _SUPPORTED_PREDICTION_TYPES:
+        raise ValueError(
+            "unsupported scheduler prediction_type "
+            f"{prediction_type!r}; expected one of {_SUPPORTED_PREDICTION_TYPES}"
+        )
+    return prediction_type
+
+
 def _masked_mse(
     prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor | None
 ) -> torch.Tensor:
@@ -92,6 +110,7 @@ class UnifiedDiffusionTrainerCore(nn.Module):
         self.denoiser = denoiser
         self.noise_scheduler = noise_scheduler
         self.noise_sampler = noise_sampler
+        self.prediction_type = _scheduler_prediction_type(noise_scheduler)
 
     def forward(
         self,
@@ -142,11 +161,13 @@ class UnifiedDiffusionTrainerCore(nn.Module):
             use_task_condition=batch.use_task_condition,
             use_text_condition=batch.use_text_condition,
         )
-        if output.sample.shape != noise.shape:
+        target_for_loss = self._regression_target(target, noise, timesteps)
+        if output.sample.shape != target_for_loss.shape:
             raise ValueError(
-                f"denoiser output/noise shapes differ: {output.sample.shape}/{noise.shape}"
+                "denoiser output/target shapes differ: "
+                f"{output.sample.shape}/{target_for_loss.shape}"
             )
-        loss = _masked_mse(output.sample, noise, batch.latent_valid_mask)
+        loss = _masked_mse(output.sample, target_for_loss, batch.latent_valid_mask)
         if not torch.isfinite(loss):
             raise FloatingPointError("diffusion loss is not finite")
         return DiffusionStepOutput(
@@ -156,3 +177,24 @@ class UnifiedDiffusionTrainerCore(nn.Module):
             noisy_target_latent=noisy_target,
             timesteps=timesteps,
         )
+
+    def _regression_target(
+        self,
+        clean_target: torch.Tensor,
+        noise: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        """Build the per-timestep regression target for the configured objective."""
+
+        if self.prediction_type == "epsilon":
+            return noise
+        if self.prediction_type == "sample":
+            return clean_target
+        # v_prediction
+        get_velocity = getattr(self.noise_scheduler, "get_velocity", None)
+        if not callable(get_velocity):
+            raise TypeError(
+                "prediction_type 'v_prediction' requires a scheduler with "
+                "get_velocity(sample, noise, timesteps)"
+            )
+        return get_velocity(clean_target, noise, timesteps)

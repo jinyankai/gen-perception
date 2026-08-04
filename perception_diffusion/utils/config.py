@@ -162,8 +162,11 @@ def _validate_model_config(
         raise ConfigError(
             f"{source}: unsupported model.backbone.conv_in_initialization"
         )
-    if model.get("prediction_type") != "epsilon":
-        raise ConfigError(f"{source}: model.prediction_type must be epsilon")
+    if model.get("prediction_type") not in {"epsilon", "v_prediction", "sample"}:
+        raise ConfigError(
+            f"{source}: model.prediction_type must be one of "
+            "epsilon, v_prediction, sample"
+        )
 
     conditioning = model["conditioning"]
     if conditioning.get("type") != "task_token_cross_attention":

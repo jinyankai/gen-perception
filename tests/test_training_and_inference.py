@@ -142,5 +142,78 @@ class UnifiedTrainingTest(unittest.TestCase):
         self.assertFalse(torch.allclose(depth, normal))
 
 
+class _TypedScheduler(_Scheduler):
+    """Scheduler exposing a prediction_type and a deterministic get_velocity."""
+
+    def __init__(self, prediction_type: str) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(
+            num_train_timesteps=10, prediction_type=prediction_type
+        )
+
+    def get_velocity(
+        self,
+        sample: torch.Tensor,
+        noise: torch.Tensor,
+        timesteps: torch.Tensor,
+    ) -> torch.Tensor:
+        del timesteps
+        return noise - sample
+
+
+class PredictionTypeTargetTest(unittest.TestCase):
+    def _trainer(self, prediction_type: str) -> UnifiedDiffusionTrainerCore:
+        conditioner = TaskTokenConditioner(
+            ["segmentation", "depth", "normal"],
+            cross_attention_dim=4,
+            num_task_tokens=2,
+            adapter_bottleneck_dim=2,
+            text_input_dim=4,
+        )
+        denoiser = UnifiedPerceptionDenoiser(_DenoisingUNet(), conditioner)
+        return UnifiedDiffusionTrainerCore(denoiser, _TypedScheduler(prediction_type))
+
+    def _batch(self) -> UnifiedLatentBatch:
+        return UnifiedLatentBatch(
+            image_latent=torch.randn(1, 4, 4, 4),
+            clean_target_latent=torch.randn(1, 4, 4, 4),
+            task_name="depth",
+            latent_valid_mask=torch.ones(1, 1, 4, 4),
+        )
+
+    def test_each_prediction_type_produces_finite_loss(self):
+        for prediction_type in ("epsilon", "v_prediction", "sample"):
+            trainer = self._trainer(prediction_type)
+            self.assertEqual(prediction_type, trainer.prediction_type)
+            output = trainer(
+                self._batch(), generator=torch.Generator().manual_seed(0)
+            )
+            self.assertTrue(torch.isfinite(output.loss))
+            self.assertEqual((1, 4, 4, 4), tuple(output.predicted_noise.shape))
+
+    def test_prediction_types_yield_distinct_targets(self):
+        # Same inputs, different objective => different loss (branch is live).
+        batch = self._batch()
+        noise = torch.randn(1, 4, 4, 4)
+        timesteps = torch.tensor([3])
+        losses = {}
+        for prediction_type in ("epsilon", "v_prediction", "sample"):
+            trainer = self._trainer(prediction_type)
+            losses[prediction_type] = float(
+                trainer(batch, noise=noise, timesteps=timesteps).loss.detach()
+            )
+        self.assertNotAlmostEqual(losses["epsilon"], losses["v_prediction"])
+        self.assertNotAlmostEqual(losses["epsilon"], losses["sample"])
+
+    def test_epsilon_default_needs_no_get_velocity(self):
+        # The bare _Scheduler has no prediction_type and no get_velocity;
+        # it must still train (defaults to epsilon) for backward compatibility.
+        trainer, _ = _system()
+        self.assertEqual("epsilon", trainer.prediction_type)
+        self.assertFalse(hasattr(trainer.noise_scheduler, "get_velocity"))
+        output = trainer(self._batch())
+        self.assertTrue(torch.isfinite(output.loss))
+
+
 if __name__ == "__main__":
     unittest.main()

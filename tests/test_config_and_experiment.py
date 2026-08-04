@@ -79,6 +79,20 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ConfigError):
             validate_config(config)
 
+    def test_supported_prediction_types_pass_validation(self):
+        for prediction_type in ("epsilon", "v_prediction", "sample"):
+            config = load_config(
+                ROOT / "configs" / "smoke.yaml", expand_environment=False
+            )
+            config["model"]["prediction_type"] = prediction_type
+            validate_config(config)
+
+    def test_invalid_prediction_type_is_rejected(self):
+        config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
+        config["model"]["prediction_type"] = "not-a-real-objective"
+        with self.assertRaises(ConfigError):
+            validate_config(config)
+
 
 class ExperimentDirectoryTest(unittest.TestCase):
     def test_standard_evidence_tree_is_created_without_overwrite(self):
