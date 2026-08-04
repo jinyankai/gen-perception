@@ -100,6 +100,84 @@ class UnifiedEvaluateCliTest(unittest.TestCase):
         self.assertAlmostEqual(0.5, result["metrics"]["acc_11_25"])
         self.assertEqual(2, result["metrics"]["valid_pixels"])
 
+    def _run_multi(
+        self,
+        temporary: str,
+        config: str,
+        samples: dict[str, tuple[np.ndarray, np.ndarray]],
+        *extra: str,
+    ) -> tuple[subprocess.CompletedProcess[str], dict]:
+        root = Path(temporary)
+        prediction_root = root / "predictions"
+        target_root = root / "targets"
+        output_root = root / "output"
+        prediction_root.mkdir()
+        target_root.mkdir()
+        for sample_id, (prediction, target) in samples.items():
+            np.save(prediction_root / f"{sample_id}.npy", prediction)
+            np.save(target_root / f"{sample_id}.npy", target)
+        command = [
+            sys.executable,
+            str(SCRIPT),
+            "--config",
+            str(ROOT / config),
+            "--predictions",
+            str(prediction_root),
+            "--targets",
+            str(target_root),
+            "--output-dir",
+            str(output_root),
+            *extra,
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        result_path = output_root / "metrics.json"
+        result = (
+            json.loads(result_path.read_text(encoding="utf-8"))
+            if result_path.is_file()
+            else {}
+        )
+        return completed, result
+
+    def test_out_of_range_segmentation_prediction_is_skipped_not_fatal(self):
+        # ADE has 150 classes; class 200 on a GT-valid pixel is unscorable. The
+        # good sample must still produce dataset metrics (M-2).
+        good = (np.array([[0, 1], [2, 0]], dtype=np.uint8),
+                np.array([[1, 2], [3, 0]], dtype=np.uint8))
+        bad = (np.array([[200, 1], [2, 0]], dtype=np.uint8),
+               np.array([[1, 2], [3, 0]], dtype=np.uint8))
+        with tempfile.TemporaryDirectory() as temporary:
+            completed, result = self._run_multi(
+                temporary,
+                "configs/segmentation/ade20k.yaml",
+                {"good": good, "bad": bad},
+                "--target-ignore-value",
+                "0",
+                "--target-label-offset",
+                "-1",
+            )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(["bad"], [entry["sample_id"] for entry in result["skipped"]])
+        self.assertEqual(["good"], [entry["sample_id"] for entry in result["samples"]])
+        self.assertAlmostEqual(1.0, result["metrics"]["miou"])
+
+    def test_all_ignore_depth_target_is_skipped_not_fatal(self):
+        # A target of all zeros has no pixel above min_depth => unscorable. The
+        # remaining scorable sample must still aggregate (M-3), and the finite
+        # metrics must serialize under allow_nan=False.
+        good_target = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        good = (2.0 * good_target + 3.0, good_target)
+        bad = (np.ones((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32))
+        with tempfile.TemporaryDirectory() as temporary:
+            completed, result = self._run_multi(
+                temporary,
+                "configs/depth/nyuv2.yaml",
+                {"good": good, "bad": bad},
+            )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(["bad"], [entry["sample_id"] for entry in result["skipped"]])
+        self.assertEqual(["good"], [entry["sample_id"] for entry in result["samples"]])
+        self.assertEqual(4, result["metrics"]["raw"]["valid_pixels"])
+
     def test_mismatched_sample_ids_fail_without_writing_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

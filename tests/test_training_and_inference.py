@@ -11,6 +11,7 @@ from perception_diffusion.training import (
     ConfiguredNoiseSampler,
     UnifiedDiffusionTrainerCore,
     UnifiedLatentBatch,
+    build_optimizer,
 )
 
 
@@ -258,6 +259,73 @@ class ConditionSwitchTest(unittest.TestCase):
         depth = sampler.sample(image, "depth", **kwargs)
         normal = sampler.sample(image, "normal", **kwargs)
         torch.testing.assert_close(depth, normal)
+
+
+class OptimizerWeightDecayGroupingTest(unittest.TestCase):
+    def _build(self) -> tuple[torch.optim.Optimizer, UnifiedPerceptionDenoiser]:
+        conditioner = TaskTokenConditioner(
+            ["segmentation", "depth", "normal"],
+            cross_attention_dim=8,
+            num_task_tokens=2,
+            adapter_bottleneck_dim=4,
+            text_input_dim=6,  # forces a real text_projection Linear (weight + bias)
+        )
+        denoiser = UnifiedPerceptionDenoiser(nn.Conv2d(8, 4, kernel_size=1), conditioner)
+        training_config = {
+            "optimizer": {
+                "shared_unet_lr": 1.0e-5,
+                "conditioner_lr": 1.0e-4,
+                "adapter_lr": 1.0e-4,
+                "weight_decay": 0.01,
+            }
+        }
+        optimizer, _ = build_optimizer(denoiser, nn.Identity(), training_config)
+        return optimizer, denoiser
+
+    def _decay_class_by_id(
+        self, optimizer: torch.optim.Optimizer
+    ) -> dict[int, bool]:
+        decays: dict[int, bool] = {}
+        for group in optimizer.param_groups:
+            for parameter in group["params"]:
+                decays[id(parameter)] = group["weight_decay"] > 0
+        return decays
+
+    def test_biases_norms_scales_and_embeddings_are_exempt_from_decay(self):
+        optimizer, denoiser = self._build()
+        decays = self._decay_class_by_id(optimizer)
+        no_decay_by_name = {
+            "conditioner.task_embeddings.weight",  # embedding lookup, 2-D but exempt
+            "conditioner.text_projection.bias",  # bias
+            "shared_unet.bias",  # conv bias
+        }
+        decay_by_name = {
+            "conditioner.text_projection.weight",  # Linear weight matrix
+            "shared_unet.weight",  # conv weight
+        }
+        by_name = dict(denoiser.named_parameters())
+        for name in no_decay_by_name:
+            self.assertIn(name, by_name, name)
+            self.assertFalse(decays[id(by_name[name])], f"{name} should be no-decay")
+        for name in decay_by_name:
+            self.assertIn(name, by_name, name)
+            self.assertTrue(decays[id(by_name[name])], f"{name} should be decayed")
+        # LayerNorm weight/bias and the residual_scale scalar inside every task
+        # adapter must all be exempt.
+        for name, parameter in denoiser.named_parameters():
+            if name.startswith("conditioner.adapters.") and (
+                ".norm." in name or name.endswith(".residual_scale")
+            ):
+                self.assertFalse(decays[id(parameter)], f"{name} should be no-decay")
+
+    def test_every_no_decay_group_sets_zero_weight_decay(self):
+        optimizer, _ = self._build()
+        saw_no_decay = False
+        for group in optimizer.param_groups:
+            if group["group_name"].endswith("_no_decay"):
+                saw_no_decay = True
+                self.assertEqual(0.0, group["weight_decay"])
+        self.assertTrue(saw_no_decay)
 
 
 if __name__ == "__main__":

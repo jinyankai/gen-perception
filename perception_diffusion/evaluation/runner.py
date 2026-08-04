@@ -266,72 +266,84 @@ def evaluate_array_roots(
 ) -> dict[str, Any]:
     pairs = pair_array_roots(inputs)
     samples: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
     evaluator = spec.evaluator
     if isinstance(evaluator, SegmentationEvaluator):
         evaluator.reset()
 
     for pair in pairs:
-        prediction_raw = _load_array(pair.prediction, inputs.prediction_key)
-        target_raw = _load_array(pair.target, inputs.target_key)
-        valid_mask = (
-            None
-            if pair.valid_mask is None
-            else _prepare_mask(
-                _load_array(pair.valid_mask, inputs.valid_mask_key), pair.sample_id
+        # A single unscorable sample (out-of-range predicted class on a
+        # GT-valid pixel, an all-ignore target, a shape mismatch) must not
+        # abort the whole run: record why it was skipped and move on. The
+        # dataset-level metrics below are computed only from scored samples.
+        try:
+            prediction_raw = _load_array(pair.prediction, inputs.prediction_key)
+            target_raw = _load_array(pair.target, inputs.target_key)
+            valid_mask = (
+                None
+                if pair.valid_mask is None
+                else _prepare_mask(
+                    _load_array(pair.valid_mask, inputs.valid_mask_key), pair.sample_id
+                )
             )
-        )
 
-        if spec.name == "segmentation":
-            if not isinstance(evaluator, SegmentationEvaluator):
-                raise TypeError("segmentation TaskSpec has the wrong evaluator")
-            prediction = _prepare_segmentation(
-                prediction_raw,
-                sample_id=pair.sample_id,
-                label_offset=inputs.prediction_label_offset,
-                input_ignore_value=inputs.prediction_ignore_value,
-                evaluator_ignore_label=evaluator.ignore_label,
-            )
-            target = _prepare_segmentation(
-                target_raw,
-                sample_id=pair.sample_id,
-                label_offset=inputs.target_label_offset,
-                input_ignore_value=inputs.target_ignore_value,
-                evaluator_ignore_label=evaluator.ignore_label,
-            )
-            evaluator.update(prediction, target, valid_mask)
-            sample_result = SegmentationEvaluator(
-                evaluator.num_classes, evaluator.ignore_label
-            ).evaluate(prediction, target, valid_mask)
-        elif spec.name == "depth":
-            if not isinstance(evaluator, DepthEvaluator):
-                raise TypeError("depth TaskSpec has the wrong evaluator")
-            prediction = _prepare_depth(
-                prediction_raw,
-                sample_id=pair.sample_id,
-                scale=inputs.prediction_depth_scale,
-            )
-            target = _prepare_depth(
-                target_raw,
-                sample_id=pair.sample_id,
-                scale=inputs.target_depth_scale,
-            )
-            sample_result = evaluator.evaluate(prediction, target, valid_mask)
-        elif spec.name == "normal":
-            if not isinstance(evaluator, NormalEvaluator):
-                raise TypeError("normal TaskSpec has the wrong evaluator")
-            prediction = _prepare_normal(
-                prediction_raw,
-                sample_id=pair.sample_id,
-                encoding=inputs.prediction_normal_encoding,
-            )
-            target = _prepare_normal(
-                target_raw,
-                sample_id=pair.sample_id,
-                encoding=inputs.target_normal_encoding,
-            )
-            sample_result = evaluator.evaluate(prediction, target, valid_mask)
-        else:
-            raise ValueError(f"unsupported task: {spec.name}")
+            if spec.name == "segmentation":
+                if not isinstance(evaluator, SegmentationEvaluator):
+                    raise TypeError("segmentation TaskSpec has the wrong evaluator")
+                prediction = _prepare_segmentation(
+                    prediction_raw,
+                    sample_id=pair.sample_id,
+                    label_offset=inputs.prediction_label_offset,
+                    input_ignore_value=inputs.prediction_ignore_value,
+                    evaluator_ignore_label=evaluator.ignore_label,
+                )
+                target = _prepare_segmentation(
+                    target_raw,
+                    sample_id=pair.sample_id,
+                    label_offset=inputs.target_label_offset,
+                    input_ignore_value=inputs.target_ignore_value,
+                    evaluator_ignore_label=evaluator.ignore_label,
+                )
+                # Score into a throwaway evaluator first: it runs the same
+                # validation as update() but touches no shared state, so a
+                # raise here leaves the dataset confusion matrix untouched.
+                sample_result = SegmentationEvaluator(
+                    evaluator.num_classes, evaluator.ignore_label
+                ).evaluate(prediction, target, valid_mask)
+                evaluator.update(prediction, target, valid_mask)
+            elif spec.name == "depth":
+                if not isinstance(evaluator, DepthEvaluator):
+                    raise TypeError("depth TaskSpec has the wrong evaluator")
+                prediction = _prepare_depth(
+                    prediction_raw,
+                    sample_id=pair.sample_id,
+                    scale=inputs.prediction_depth_scale,
+                )
+                target = _prepare_depth(
+                    target_raw,
+                    sample_id=pair.sample_id,
+                    scale=inputs.target_depth_scale,
+                )
+                sample_result = evaluator.evaluate(prediction, target, valid_mask)
+            elif spec.name == "normal":
+                if not isinstance(evaluator, NormalEvaluator):
+                    raise TypeError("normal TaskSpec has the wrong evaluator")
+                prediction = _prepare_normal(
+                    prediction_raw,
+                    sample_id=pair.sample_id,
+                    encoding=inputs.prediction_normal_encoding,
+                )
+                target = _prepare_normal(
+                    target_raw,
+                    sample_id=pair.sample_id,
+                    encoding=inputs.target_normal_encoding,
+                )
+                sample_result = evaluator.evaluate(prediction, target, valid_mask)
+            else:
+                raise ValueError(f"unsupported task: {spec.name}")
+        except (ValueError, TypeError) as error:
+            skipped.append({"sample_id": pair.sample_id, "reason": str(error)})
+            continue
 
         samples.append(
             {
@@ -343,6 +355,12 @@ def evaluate_array_roots(
                 ),
                 "metrics": _scalar_metrics(sample_result),
             }
+        )
+
+    if not samples:
+        raise ValueError(
+            f"every sample was unscorable ({len(skipped)} skipped); "
+            "cannot produce dataset metrics"
         )
 
     if isinstance(evaluator, SegmentationEvaluator):
@@ -378,6 +396,7 @@ def evaluate_array_roots(
             ),
             "sample_count": len(samples),
         },
+        "skipped": skipped,
         "aggregation": aggregation,
         "metrics": summary,
         "samples": samples,
