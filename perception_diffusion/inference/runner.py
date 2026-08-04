@@ -191,43 +191,48 @@ def run_inference(
             for sample_index, sample_id in enumerate(raw_batch["sample_id"]):
                 image = raw_batch["image"][sample_index : sample_index + 1].to(system.device)
                 valid = raw_batch["valid_mask"][sample_index, 0].cpu().numpy().astype(bool)
-                image_latent = system.visual_pathway.encode_images(image)
-                query_initial_noises = [
-                    torch.randn(
-                        (
-                            1,
-                            system.denoiser.target_latent_channels,
-                            *image_latent.shape[-2:],
-                        ),
-                        device=system.device,
-                        dtype=image_latent.dtype,
-                        generator=generator,
-                    )
-                    for _ in range(ensemble_size)
-                ]
                 score_maps: list[np.ndarray] = []
-                for start in range(0, len(queries), query_batch_size):
-                    chunk = queries[start : start + query_batch_size]
-                    prompts = [query.prompt for query in chunk]
-                    text_hidden = system.encode_prompts(prompts)
-                    repeated_image = image_latent.repeat(len(chunk), 1, 1, 1)
-                    decoded = _sample_decoded_pixels(
-                        sampler,
-                        system.visual_pathway,
-                        repeated_image,
-                        task_name,
-                        text_hidden,
-                        num_steps=num_steps,
-                        ensemble_size=ensemble_size,
-                        generator=generator,
-                        use_task_condition=use_task,
-                        use_text_condition=use_text,
-                        initial_noises=query_initial_noises,
-                    )
-                    score_maps.extend(
-                        spec.codec.decode_scores(sample.cpu().numpy(), valid)
-                        for sample in decoded
-                    )
+                with torch.autocast(
+                    device_type=system.device.type,
+                    dtype=system.autocast_dtype,
+                    enabled=system.autocast_enabled,
+                ):
+                    image_latent = system.visual_pathway.encode_images(image)
+                    query_initial_noises = [
+                        torch.randn(
+                            (
+                                1,
+                                system.denoiser.target_latent_channels,
+                                *image_latent.shape[-2:],
+                            ),
+                            device=system.device,
+                            dtype=image_latent.dtype,
+                            generator=generator,
+                        )
+                        for _ in range(ensemble_size)
+                    ]
+                    for start in range(0, len(queries), query_batch_size):
+                        chunk = queries[start : start + query_batch_size]
+                        prompts = [query.prompt for query in chunk]
+                        text_hidden = system.encode_prompts(prompts)
+                        repeated_image = image_latent.repeat(len(chunk), 1, 1, 1)
+                        decoded = _sample_decoded_pixels(
+                            sampler,
+                            system.visual_pathway,
+                            repeated_image,
+                            task_name,
+                            text_hidden,
+                            num_steps=num_steps,
+                            ensemble_size=ensemble_size,
+                            generator=generator,
+                            use_task_condition=use_task,
+                            use_text_condition=use_text,
+                            initial_noises=query_initial_noises,
+                        )
+                        score_maps.extend(
+                            spec.codec.decode_scores(sample.cpu().numpy(), valid)
+                            for sample in decoded
+                        )
                 prediction_512 = merge_query_scores(
                     np.stack(score_maps), queries, valid_mask=valid
                 )
@@ -264,20 +269,25 @@ def run_inference(
     else:
         for raw_batch in loader:
             image = raw_batch["image"].to(system.device)
-            image_latent = system.visual_pathway.encode_images(image)
-            text_hidden = system.encode_prompts(raw_batch["text_condition"])
-            decoded = _sample_decoded_pixels(
-                sampler,
-                system.visual_pathway,
-                image_latent,
-                task_name,
-                text_hidden,
-                num_steps=num_steps,
-                ensemble_size=ensemble_size,
-                generator=generator,
-                use_task_condition=use_task,
-                use_text_condition=use_text,
-            )
+            with torch.autocast(
+                device_type=system.device.type,
+                dtype=system.autocast_dtype,
+                enabled=system.autocast_enabled,
+            ):
+                image_latent = system.visual_pathway.encode_images(image)
+                text_hidden = system.encode_prompts(raw_batch["text_condition"])
+                decoded = _sample_decoded_pixels(
+                    sampler,
+                    system.visual_pathway,
+                    image_latent,
+                    task_name,
+                    text_hidden,
+                    num_steps=num_steps,
+                    ensemble_size=ensemble_size,
+                    generator=generator,
+                    use_task_condition=use_task,
+                    use_text_condition=use_text,
+                )
             for sample_index, sample_id in enumerate(raw_batch["sample_id"]):
                 valid = raw_batch["valid_mask"][sample_index, 0].cpu().numpy().astype(bool)
                 prediction = spec.codec.decode(decoded[sample_index].cpu().numpy(), valid)

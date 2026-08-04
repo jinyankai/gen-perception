@@ -69,6 +69,16 @@ class TrainingLogger:
         if self.wandb_run is not None:
             self.wandb_run.log(numeric, step=step)
 
+    def log_image(self, tag: str, image: Any, step: int) -> None:
+        """Log an HWC uint8 panel to TensorBoard and W&B when enabled."""
+
+        if self.writer is not None:
+            self.writer.add_image(tag, image, step, dataformats="HWC")
+        if self.wandb_run is not None:
+            import wandb
+
+            self.wandb_run.log({tag: wandb.Image(image)}, step=step)
+
     def close(self) -> None:
         if self.writer is not None:
             self.writer.flush()

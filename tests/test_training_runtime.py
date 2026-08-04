@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy
 import torch
 from torch import nn
 
@@ -166,6 +167,47 @@ class LoggingTest(unittest.TestCase):
         self.assertIn('"step": 3', text)
         self.assertIn('"train/loss": 1.25', text)
 
+    def test_log_image_forwards_hwc_panel_to_writer(self):
+        config = {
+            "experiment": {"name": "unit"},
+            "training": {
+                "logging": {
+                    "tensorboard": False,
+                    "wandb": {"enabled": False, "mode": "offline"},
+                }
+            },
+        }
+        calls: list[dict[str, object]] = []
+
+        class _FakeWriter:
+            def add_image(self, tag, image, step, dataformats):
+                calls.append(
+                    {
+                        "tag": tag,
+                        "shape": image.shape,
+                        "step": step,
+                        "dataformats": dataformats,
+                    }
+                )
+
+            def flush(self):
+                pass
+
+            def close(self):
+                pass
+
+        panel = numpy.zeros((4, 12, 3), dtype=numpy.uint8)
+        with tempfile.TemporaryDirectory() as temporary:
+            logger = TrainingLogger(temporary, config, enable_tensorboard=False)
+            logger.writer = _FakeWriter()
+            logger.log_image("val/depth/sample", panel, 5)
+            logger.close()
+        self.assertEqual(1, len(calls))
+        self.assertEqual("val/depth/sample", calls[0]["tag"])
+        self.assertEqual((4, 12, 3), calls[0]["shape"])
+        self.assertEqual(5, calls[0]["step"])
+        self.assertEqual("HWC", calls[0]["dataformats"])
+
 
 class TrainingRunnerTest(unittest.TestCase):
     def test_runner_executes_optimizer_log_and_checkpoint_control_flow(self):
@@ -206,6 +248,91 @@ class TrainingRunnerTest(unittest.TestCase):
             self.assertTrue((run_root / "metrics.jsonl").read_text(encoding="utf-8"))
             self.assertEqual("TRAINING_COMPLETED", summary["status"])
             self.assertEqual(1, summary["steps"])
+
+    def test_amp_skipped_step_does_not_advance_schedule_or_counter(self):
+        config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
+        config["training"]["max_steps"] = 1
+        config["training"]["checkpoint_every"] = 1
+        config["training"]["log_every"] = 1
+        config["training"]["gradient_checkpointing"] = False
+        config["training"]["logging"]["tensorboard"] = False
+        batch = {
+            "image": torch.zeros(1, 3, 8, 8),
+            "target": torch.zeros(1, 3, 8, 8),
+            "valid_mask": torch.ones(1, 1, 8, 8, dtype=torch.bool),
+            "task_name": "segmentation",
+            "text_condition": ["semantic segmentation"],
+        }
+
+        class _SkipOnceScaler:
+            """Report one AMP backoff (scale drop) before behaving normally."""
+
+            def __init__(self) -> None:
+                self._scales = [2.0, 1.0, 1.0, 1.0]
+                self._index = 0
+
+            def scale(self, loss):
+                return loss
+
+            def unscale_(self, optimizer):
+                pass
+
+            def step(self, optimizer):
+                pass
+
+            def update(self):
+                self._index = min(self._index + 1, len(self._scales) - 1)
+
+            def get_scale(self):
+                return self._scales[self._index]
+
+            def state_dict(self):
+                return {}
+
+            def load_state_dict(self, state):
+                pass
+
+        steps_seen: list[int] = []
+        real_scheduler_step = torch.optim.lr_scheduler.LambdaLR.step
+
+        def _counting_step(self, *args, **kwargs):
+            # LambdaLR.__init__ invokes step() once to initialize; count only the
+            # explicit calls made inside the training loop (epoch advances past 0).
+            result = real_scheduler_step(self, *args, **kwargs)
+            if self.last_epoch >= 1:
+                steps_seen.append(self.last_epoch)
+            return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            config["experiment"]["output_root"] = temporary
+            with (
+                patch(
+                    "perception_diffusion.training.runner.load_pretrained_system",
+                    return_value=_TinySystem(),
+                ),
+                patch(
+                    "perception_diffusion.training.runner.build_dataloader",
+                    return_value=[batch],
+                ),
+                patch(
+                    "perception_diffusion.training.runner._make_scaler",
+                    return_value=_SkipOnceScaler(),
+                ),
+                patch.object(
+                    torch.optim.lr_scheduler.LambdaLR, "step", _counting_step
+                ),
+            ):
+                summary = run_training(
+                    config,
+                    repo_root=ROOT,
+                    command=["test"],
+                    enable_tensorboard=False,
+                )
+        # The first optimizer step is skipped, so exactly one real step lands and
+        # the schedule advances exactly once despite two loop iterations.
+        self.assertEqual(1, summary["steps"])
+        self.assertEqual(1, summary["amp_skipped_steps"])
+        self.assertEqual(1, len(steps_seen))
 
 
 class ReconstructionAnalysisTest(unittest.TestCase):

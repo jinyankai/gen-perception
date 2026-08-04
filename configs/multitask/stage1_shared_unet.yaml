@@ -78,6 +78,9 @@ training:
   mixed_precision: fp16
   gradient_accumulation_steps: 4
   task_batch_homogeneous: true
+  validation:
+    every: 2000
+    num_samples: 2
   optimizer:
     name: adamw
     shared_unet_lr: 1.0e-5

@@ -92,6 +92,169 @@ def _resume_paths(checkpoint: Path) -> ExperimentPaths:
     )
 
 
+def _safe_sample_id(sample_id: str) -> str:
+    value = sample_id.replace("\\", "__").replace("/", "__")
+    return value or "sample"
+
+
+@torch.no_grad()
+def _run_validation(
+    system: Any,
+    sampler: Any,
+    specs: Mapping[str, Any],
+    loaders: Mapping[str, Any],
+    trainer: UnifiedDiffusionTrainerCore,
+    logger: TrainingLogger,
+    *,
+    step: int,
+    num_steps: int,
+    device: torch.device,
+    adapter_enabled: bool,
+    paths: ExperimentPaths,
+) -> dict[str, float | int | str]:
+    """Sample + score a fixed held-out set, saving panels and returning scalars.
+
+    Wrapped in denoiser.eval(); a constant-seed generator keeps the validation
+    loss comparable across steps so only the changing weights move the curve.
+    """
+
+    metrics: dict[str, float | int | str] = {}
+    losses: list[float] = []
+    step_dir = paths.visualizations / f"step-{step:08d}"
+    was_training = system.denoiser.training
+    system.denoiser.eval()
+    try:
+        for task_name, loader in loaders.items():
+            spec = specs[task_name]
+            task_losses: list[float] = []
+            for raw_batch in loader:
+                images = _move_tensor(raw_batch["image"], device)
+                targets = _move_tensor(raw_batch["target"], device)
+                valid_mask = _move_tensor(raw_batch["valid_mask"], device)
+                text_hidden = system.encode_prompts(raw_batch["text_condition"])
+                validation_generator = torch.Generator(device=device).manual_seed(0)
+                with torch.autocast(
+                    device_type=device.type,
+                    dtype=system.autocast_dtype,
+                    enabled=system.autocast_enabled,
+                ):
+                    pair = system.visual_pathway.encode_pair(
+                        images,
+                        targets,
+                        valid_mask,
+                        task_name,
+                        sample_posterior=False,
+                        generator=validation_generator,
+                    )
+                    latent_batch = UnifiedLatentBatch(
+                        image_latent=pair.image_latent,
+                        clean_target_latent=pair.target_latent,
+                        task_name=task_name,
+                        latent_valid_mask=pair.latent_valid_mask,
+                        text_hidden_states=text_hidden,
+                    )
+                    output = trainer(latent_batch, generator=validation_generator)
+                task_losses.append(float(output.loss.detach()))
+                if adapter_enabled:
+                    continue
+                _save_validation_panels(
+                    system,
+                    sampler,
+                    spec,
+                    raw_batch,
+                    task_name,
+                    text_hidden,
+                    logger,
+                    step=step,
+                    num_steps=num_steps,
+                    step_dir=step_dir,
+                    generator=validation_generator,
+                )
+            if task_losses:
+                task_mean = sum(task_losses) / len(task_losses)
+                metrics[f"val/loss_{task_name}"] = task_mean
+                losses.extend(task_losses)
+        if losses:
+            metrics["val/loss"] = sum(losses) / len(losses)
+        if adapter_enabled:
+            metrics["val/visualization"] = "skipped_target_adapter_enabled"
+    finally:
+        if was_training:
+            system.denoiser.train()
+    return metrics
+
+
+def _save_validation_panels(
+    system: Any,
+    sampler: Any,
+    spec: Any,
+    raw_batch: Mapping[str, Any],
+    task_name: str,
+    text_hidden: torch.Tensor,
+    logger: TrainingLogger,
+    *,
+    step: int,
+    num_steps: int,
+    step_dir: Path,
+    generator: torch.Generator,
+) -> None:
+    """Sample, decode, and persist an [input|GT|prediction|error] panel per sample.
+
+    A durable PNG lands under ``step_dir`` and the same panel is mirrored to the
+    logger so TensorBoard/W&B show predictions converging on the fixed samples.
+    """
+
+    import numpy as np
+    from PIL import Image
+
+    from perception_diffusion.visualization import save_prediction_panel
+
+    device = system.device
+    images = _move_tensor(raw_batch["image"], device)
+    with torch.autocast(
+        device_type=device.type,
+        dtype=system.autocast_dtype,
+        enabled=system.autocast_enabled,
+    ):
+        image_latent = system.visual_pathway.encode_images(images)
+        target_latent = sampler.sample(
+            image_latent,
+            task_name,
+            num_inference_steps=num_steps,
+            text_hidden_states=text_hidden,
+            generator=generator,
+            use_task_condition=True,
+            use_text_condition=True,
+        )
+        decoded = system.visual_pathway.decode_latents(target_latent).clamp(-1.0, 1.0)
+    for sample_index, sample_id in enumerate(raw_batch["sample_id"]):
+        valid = raw_batch["valid_mask"][sample_index, 0].cpu().numpy().astype(bool)
+        prediction = spec.codec.decode(decoded[sample_index].cpu().numpy(), valid)
+        target_chw = raw_batch["native_target"][sample_index].cpu().numpy()
+        num_classes = 150
+        if task_name == "segmentation":
+            query_class_id = int(raw_batch["query_class_id"][sample_index])
+            target = (target_chw[0] == query_class_id).astype(np.uint8)
+            num_classes = 2
+        elif task_name == "depth":
+            target = target_chw[0]
+        else:
+            target = target_chw
+        safe_id = _safe_sample_id(str(sample_id))
+        panel_path = step_dir / f"{task_name}_{safe_id}.png"
+        save_prediction_panel(
+            task_name,
+            raw_batch["image"][sample_index],
+            prediction,
+            target,
+            panel_path,
+            valid_mask=valid,
+            num_classes=num_classes,
+        )
+        panel = np.asarray(Image.open(panel_path).convert("RGB"))
+        logger.log_image(f"val/{task_name}/{safe_id}", panel, step)
+
+
 def run_training(
     config: dict[str, Any],
     *,
@@ -208,7 +371,48 @@ def run_training(
     gradient_clip = float(training_config.get("gradient_clip_norm", 1.0))
     if log_every <= 0 or checkpoint_every <= 0 or gradient_clip <= 0:
         raise ValueError("logging/checkpoint intervals and gradient clip must be positive")
+
+    # In-training periodic validation (opt-in via training.validation.every > 0).
+    # The sampler and task specs live under perception_diffusion.inference, whose
+    # runner imports back into training; importing here (not at module top) keeps
+    # the load order acyclic.
+    validation_config = training_config.get("validation") or {}
+    validation_every = int(validation_config.get("every", 0))
+    validation_samples = int(validation_config.get("num_samples", 2))
+    # A learned pre-VAE target adapter has no codec inverse (see inference guard),
+    # so viz is skipped when it is on; the latent-space val-loss still computes.
+    adapter_enabled = bool(config["model"]["target_adapter"]["enabled"])
+    validation_loaders: dict[str, Any] = {}
+    sampler = None
+    specs = None
+    if validation_every > 0:
+        from perception_diffusion.inference import UnifiedLatentSampler
+        from perception_diffusion.task_specs import build_task_specs
+
+        specs = build_task_specs(config)
+        sampler = UnifiedLatentSampler(system.denoiser, system.inference_scheduler)
+        is_multitask = config["task"]["name"] == "multitask"
+        for task_name in task_names:
+            task_data = (
+                config["data"]["datasets"][task_name] if is_multitask else config["data"]
+            )
+            validation_split = str(
+                task_data.get("validation_split", task_data.get("split"))
+            )
+            validation_loaders[task_name] = build_dataloader(
+                config,
+                task_name,
+                split=validation_split,
+                training=False,
+                batch_size=1,
+                num_workers=0,
+                shuffle=False,
+                strict_protocol=True,
+                max_samples=validation_samples,
+            )
+    validation_steps = int(config["inference"]["num_steps"])
     loss_history: list[float] = []
+    skipped_steps = 0
     started = time.perf_counter()
     try:
         while global_step < max_steps:
@@ -253,8 +457,17 @@ def run_training(
             scaler.unscale_(optimizer)
             unclipped_norm = gradient_norm(trainable_parameters)
             torch.nn.utils.clip_grad_norm_(trainable_parameters, gradient_clip)
+            scale_before = scaler.get_scale()
             scaler.step(optimizer)
             scaler.update()
+            if scaler.get_scale() < scale_before:
+                # AMP found non-finite gradients and skipped optimizer.step().
+                # A skipped update must not advance the LR schedule or the step
+                # counter, and its (inf/NaN) gradient norm must not be recorded
+                # as though real optimization happened.
+                skipped_steps += 1
+                optimizer.zero_grad(set_to_none=True)
+                continue
             lr_scheduler.step()
             global_step += 1
             loss_history.append(accumulated_loss)
@@ -283,6 +496,24 @@ def run_training(
                     scaler=scaler,
                     generator=generator,
                 )
+            if validation_every > 0 and (
+                global_step % validation_every == 0 or global_step == max_steps
+            ):
+                assert sampler is not None and specs is not None
+                validation_metrics = _run_validation(
+                    system,
+                    sampler,
+                    specs,
+                    validation_loaders,
+                    trainer,
+                    logger,
+                    step=global_step,
+                    num_steps=validation_steps,
+                    device=device,
+                    adapter_enabled=adapter_enabled,
+                    paths=paths,
+                )
+                logger.log(global_step, validation_metrics)
     finally:
         logger.close()
 
@@ -290,6 +521,7 @@ def run_training(
         "status": "TRAINING_COMPLETED",
         "formal_experiment": False,
         "steps": global_step,
+        "amp_skipped_steps": skipped_steps,
         "tasks": list(task_names),
         "run_root": str(paths.root.resolve()),
         "last_checkpoint": str(

@@ -93,6 +93,26 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaises(ConfigError):
             validate_config(config)
 
+    def test_optional_validation_block_accepts_positive_integers(self):
+        config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
+        config["training"]["validation"] = {"every": 100, "num_samples": 2}
+        validate_config(config)
+
+    def test_validation_block_rejects_non_mapping(self):
+        config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
+        config["training"]["validation"] = 100
+        with self.assertRaises(ConfigError):
+            validate_config(config)
+
+    def test_validation_block_rejects_missing_or_nonpositive_keys(self):
+        for validation in ({"num_samples": 2}, {"every": 0, "num_samples": 2}):
+            config = load_config(
+                ROOT / "configs" / "smoke.yaml", expand_environment=False
+            )
+            config["training"]["validation"] = validation
+            with self.assertRaises(ConfigError):
+                validate_config(config)
+
 
 class ExperimentDirectoryTest(unittest.TestCase):
     def test_standard_evidence_tree_is_created_without_overwrite(self):

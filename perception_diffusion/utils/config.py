@@ -558,6 +558,16 @@ def validate_config(config: dict[str, Any], *, source: str = "<memory>") -> None
         raise ConfigError(f"{source}: training.logging.wandb.enabled must be boolean")
     if wandb.get("mode") not in {"offline", "online", "disabled"}:
         raise ConfigError(f"{source}: unsupported training.logging.wandb.mode")
+    validation = training.get("validation")
+    if validation is not None:
+        if not isinstance(validation, dict):
+            raise ConfigError(f"{source}: training.validation must be a mapping")
+        _require_positive_integer(
+            validation.get("every"), "training.validation.every", source
+        )
+        _require_positive_integer(
+            validation.get("num_samples"), "training.validation.num_samples", source
+        )
     inference = config["inference"]
     steps = inference.get("num_steps") if isinstance(inference, dict) else None
     if not isinstance(steps, int) or steps <= 0:

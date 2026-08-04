@@ -27,6 +27,9 @@ training:
   gradient_accumulation_steps: 1
   checkpoint_every: 50
   log_every: 1
+  validation:
+    every: 100
+    num_samples: 2
   lr_scheduler:
     name: constant
     warmup_steps: 0
