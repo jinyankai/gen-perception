@@ -110,6 +110,26 @@ class ConditioningTest(unittest.TestCase):
         self.assertEqual((1, 5, 8), tuple(states.shape))
         self.assertTrue(torch.equal(states, torch.zeros_like(states)))
 
+    def test_disabling_only_text_keeps_task_tokens(self):
+        conditioner = TaskTokenConditioner(
+            ["segmentation", "depth", "normal"],
+            cross_attention_dim=8,
+            num_task_tokens=2,
+            adapter_bottleneck_dim=4,
+            text_input_dim=8,
+        )
+        text = torch.randn(1, 3, 8)
+        states = conditioner(
+            "depth",
+            batch_size=1,
+            text_hidden_states=text,
+            use_text_condition=False,
+        )
+
+        # Task tokens (first 2) survive; text tokens (last 3) are zeroed.
+        self.assertFalse(torch.allclose(states[:, :2], torch.zeros_like(states[:, :2])))
+        self.assertTrue(torch.equal(states[:, 2:], torch.zeros_like(states[:, 2:])))
+
     def test_unified_denoiser_passes_one_eight_channel_input(self):
         unet = _FakeUNet()
         expand_unet_conv_in(unet, 4, 4)

@@ -5,6 +5,7 @@ import torch
 from torch import nn
 
 from perception_diffusion.inference import UnifiedLatentSampler
+from perception_diffusion.inference.runner import condition_mode_switches
 from perception_diffusion.models import TaskTokenConditioner, UnifiedPerceptionDenoiser
 from perception_diffusion.training import (
     ConfiguredNoiseSampler,
@@ -213,6 +214,50 @@ class PredictionTypeTargetTest(unittest.TestCase):
         self.assertFalse(hasattr(trainer.noise_scheduler, "get_velocity"))
         output = trainer(self._batch())
         self.assertTrue(torch.isfinite(output.loss))
+
+
+class ConditionSwitchTest(unittest.TestCase):
+    def test_condition_mode_switches_maps_each_mode(self):
+        self.assertEqual((True, True), condition_mode_switches("full"))
+        self.assertEqual((True, False), condition_mode_switches("task_only"))
+        self.assertEqual((False, True), condition_mode_switches("text_only"))
+        self.assertEqual((False, False), condition_mode_switches("unconditional"))
+        with self.assertRaises(ValueError):
+            condition_mode_switches("bogus")  # type: ignore[arg-type]
+
+    def test_disabling_task_condition_changes_sampled_output(self):
+        # _DenoisingUNet adds the condition mean to its output, so zeroing the
+        # task tokens must shift the sampled latent end-to-end through sampler.
+        _, sampler = _system()
+        image = torch.randn(1, 4, 4, 4)
+        initial_noise = torch.zeros(1, 4, 4, 4)
+        full = sampler.sample(
+            image, "depth", num_inference_steps=2, initial_noise=initial_noise
+        )
+        task_off = sampler.sample(
+            image,
+            "depth",
+            num_inference_steps=2,
+            initial_noise=initial_noise,
+            use_task_condition=False,
+        )
+        self.assertFalse(torch.allclose(full, task_off))
+
+    def test_unconditional_sampling_is_reproducible(self):
+        # Both condition sources off => output is deterministic for a fixed
+        # image and initial noise, independent of task name.
+        _, sampler = _system()
+        image = torch.randn(1, 4, 4, 4)
+        initial_noise = torch.zeros(1, 4, 4, 4)
+        kwargs = dict(
+            num_inference_steps=2,
+            initial_noise=initial_noise,
+            use_task_condition=False,
+            use_text_condition=False,
+        )
+        depth = sampler.sample(image, "depth", **kwargs)
+        normal = sampler.sample(image, "normal", **kwargs)
+        torch.testing.assert_close(depth, normal)
 
 
 if __name__ == "__main__":
