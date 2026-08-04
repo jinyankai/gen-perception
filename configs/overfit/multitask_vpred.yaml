@@ -1,0 +1,8 @@
+defaults:
+  - ./multitask.yaml
+
+experiment:
+  name: overfit-multitask-vpred
+
+model:
+  prediction_type: v_prediction
