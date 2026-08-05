@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler, Subset
 
 from perception_diffusion.tasks import TASK_NAMES
 
@@ -140,8 +140,15 @@ def build_dataloader(
     shuffle: bool | None = None,
     strict_protocol: bool = True,
     max_samples: int | None = None,
+    distributed_context: Any | None = None,
 ) -> DataLoader[dict[str, Any]]:
-    """Build a reproducibly seeded, task-homogeneous DataLoader."""
+    """Build a reproducibly seeded, task-homogeneous DataLoader.
+
+    When ``distributed_context`` is a DDP-enabled context, a ``DistributedSampler``
+    partitions the dataset across ranks (mutually exclusive with ``shuffle``); its
+    ``set_epoch`` is exposed via the returned loader's ``.sampler``. Non-distributed
+    behavior is unchanged.
+    """
 
     task_data = _task_data_config(config, task_name)
     selected_split = str(split or task_data.get("split", "train"))
@@ -175,15 +182,30 @@ def build_dataloader(
     pin_memory = runtime_device == "cuda" or (
         runtime_device == "auto" and torch.cuda.is_available()
     )
+    drop_last = bool(task_data.get("drop_last", False) and training)
+    sampler: DistributedSampler[Any] | None = None
+    if distributed_context is not None and getattr(distributed_context, "enabled", False):
+        # A DistributedSampler owns shuffling and is mutually exclusive with the
+        # DataLoader shuffle flag; each rank draws its own partition.
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=distributed_context.world_size,
+            rank=distributed_context.rank,
+            shuffle=shuffle,
+            seed=seed,
+            drop_last=drop_last,
+        )
+        shuffle = False
     return DataLoader(
         dataset,
         batch_size=resolved_batch_size,
         shuffle=shuffle,
+        sampler=sampler,
         num_workers=resolved_workers,
         collate_fn=collate_task_samples,
         worker_init_fn=seed_data_worker,
         generator=generator,
         pin_memory=pin_memory,
         persistent_workers=resolved_workers > 0,
-        drop_last=bool(task_data.get("drop_last", False) and training),
+        drop_last=drop_last,
     )

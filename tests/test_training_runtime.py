@@ -18,9 +18,13 @@ from perception_diffusion.models import TaskTokenConditioner, UnifiedPerceptionD
 from perception_diffusion.training import (
     TrainingLogger,
     load_training_checkpoint,
+    resolve_distributed_context,
     run_training,
     save_checkpoint,
+    single_process_context,
+    wrap_ddp,
 )
+from perception_diffusion.training.distributed import barrier, destroy, reduce_mean
 from perception_diffusion.utils.config import load_config
 
 
@@ -375,6 +379,65 @@ class ReconstructionAnalysisTest(unittest.TestCase):
         self.assertEqual((True, False), condition_mode_switches("task_only"))
         self.assertEqual((False, True), condition_mode_switches("text_only"))
         self.assertEqual((False, False), condition_mode_switches("unconditional"))
+
+
+class DistributedRuntimeTest(unittest.TestCase):
+    def test_disabled_mode_returns_single_process_context(self):
+        ctx = resolve_distributed_context({"runtime": {}}, device_type="cpu")
+        self.assertFalse(ctx.enabled)
+        self.assertEqual(0, ctx.rank)
+        self.assertEqual(1, ctx.world_size)
+        self.assertTrue(ctx.is_main)
+
+    def test_unknown_mode_is_rejected(self):
+        with self.assertRaises(ValueError):
+            resolve_distributed_context(
+                {"runtime": {"distributed": "horovod"}}, device_type="cpu"
+            )
+
+    def test_ddp_requires_cuda_device(self):
+        with self.assertRaises(RuntimeError):
+            resolve_distributed_context(
+                {"runtime": {"distributed": "ddp"}}, device_type="cpu"
+            )
+
+    def test_ddp_without_launcher_env_is_rejected(self):
+        # No RANK/WORLD_SIZE/LOCAL_RANK (torchrun injects them), so this must
+        # raise before touching the process group even when CUDA is claimed.
+        with patch("torch.cuda.is_available", return_value=True):
+            with patch.dict("os.environ", {}, clear=True):
+                with self.assertRaises(RuntimeError):
+                    resolve_distributed_context(
+                        {"runtime": {"distributed": "ddp"}}, device_type="cuda"
+                    )
+
+    def test_helpers_are_identity_when_disabled(self):
+        ctx = single_process_context()
+        module = nn.Linear(2, 2)
+        self.assertIs(module, wrap_ddp(module, ctx))
+        self.assertIsNone(barrier(ctx))
+        self.assertIsNone(destroy(ctx))
+        self.assertEqual(
+            2.5, reduce_mean(2.5, ctx, device=torch.device("cpu"))
+        )
+
+    def test_runner_rejects_ddp_with_target_adapter_enabled(self):
+        config = load_config(ROOT / "configs" / "smoke.yaml", expand_environment=False)
+        config["runtime"]["distributed"] = "ddp"
+        config["model"]["target_adapter"]["enabled"] = True
+        # An enabled context can only arise under torchrun+CUDA, so stub it to hit
+        # the guard on CPU. The guard fires before load_pretrained_system, proving
+        # the incompatible combination is refused rather than silently mistrained.
+        enabled_ctx = SimpleNamespace(
+            enabled=True, rank=0, local_rank=0, world_size=2, is_main=True
+        )
+        with patch(
+            "perception_diffusion.training.runner.resolve_distributed_context",
+            return_value=enabled_ctx,
+        ):
+            with self.assertRaises(ValueError) as raised:
+                run_training(config, repo_root=ROOT, command=["test"])
+        self.assertIn("target_adapter", str(raised.exception))
 
 
 if __name__ == "__main__":

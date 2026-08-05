@@ -15,6 +15,7 @@ import torch
 
 from perception_diffusion.data import build_dataloader
 from perception_diffusion.models import load_pretrained_system
+from perception_diffusion.models.pretrained import resolve_device
 from perception_diffusion.utils.config import configured_task_names, load_config
 from perception_diffusion.utils.experiment import (
     ExperimentPaths,
@@ -22,6 +23,13 @@ from perception_diffusion.utils.experiment import (
 )
 
 from .checkpoint import load_training_checkpoint, save_checkpoint
+from .distributed import (
+    broadcast_run_root,
+    destroy,
+    reduce_mean,
+    resolve_distributed_context,
+    wrap_ddp,
+)
 from .logging import TrainingLogger
 from .noise import ConfiguredNoiseSampler
 from .optim import build_lr_scheduler, build_optimizer, gradient_norm
@@ -46,10 +54,21 @@ class RoundRobinBatchStream:
             raise ValueError("at least one task DataLoader is required")
         self.loaders = dict(loaders)
         self.task_names = tuple(loaders)
+        self.epochs: dict[str, int] = {name: 0 for name in self.loaders}
         self.iterators: dict[str, Iterator[dict[str, Any]]] = {
             name: iter(loader) for name, loader in self.loaders.items()
         }
         self.index = 0
+
+    def _restart(self, task_name: str) -> None:
+        # Advance the DistributedSampler epoch so each rank reshuffles its
+        # partition consistently; plain samplers ignore this and simply restart.
+        self.epochs[task_name] += 1
+        sampler = getattr(self.loaders[task_name], "sampler", None)
+        set_epoch = getattr(sampler, "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(self.epochs[task_name])
+        self.iterators[task_name] = iter(self.loaders[task_name])
 
     def __next__(self) -> tuple[str, dict[str, Any]]:
         task_name = self.task_names[self.index % len(self.task_names)]
@@ -57,7 +76,7 @@ class RoundRobinBatchStream:
         try:
             batch = next(self.iterators[task_name])
         except StopIteration:
-            self.iterators[task_name] = iter(self.loaders[task_name])
+            self._restart(task_name)
             batch = next(self.iterators[task_name])
         if batch.get("task_name") != task_name:
             raise ValueError("DataLoader task name disagrees with round-robin route")
@@ -73,6 +92,18 @@ def _make_scaler(device: torch.device, enabled: bool) -> Any:
 
 def _move_tensor(value: torch.Tensor, device: torch.device) -> torch.Tensor:
     return value.to(device, non_blocking=device.type == "cuda")
+
+
+def _run_paths(root: Path) -> ExperimentPaths:
+    """Build the standard subdirectory view of an already-created run root."""
+
+    return ExperimentPaths(
+        root=root,
+        checkpoints=root / "checkpoints",
+        predictions=root / "predictions",
+        visualizations=root / "visualizations",
+        tensorboard=root / "tensorboard",
+    )
 
 
 def _resume_paths(checkpoint: Path) -> ExperimentPaths:
@@ -279,8 +310,20 @@ def run_training(
     accumulation_steps = int(training_config.get("gradient_accumulation_steps", 1))
     if accumulation_steps <= 0:
         raise ValueError("gradient_accumulation_steps must be positive")
+    device_type = resolve_device(config, device_override).type
+    ctx = resolve_distributed_context(config, device_type=device_type)
+    if ctx.enabled and bool(config["model"]["target_adapter"]["enabled"]):
+        # The pre-VAE target adapter trains inside visual_pathway.encode_pair,
+        # outside the DDP-wrapped trainer, so its gradients would never be
+        # all-reduced. Refuse rather than train an inconsistent replica set.
+        raise ValueError(
+            "runtime.distributed=ddp is incompatible with model.target_adapter.enabled=true; "
+            "run the learned-adapter ablation single-process"
+        )
     seed = int(config["experiment"]["seed"])
-    seed_everything(seed)
+    # Offset the seed by rank so each replica draws distinct noise/timesteps while
+    # DistributedSampler keeps data partitions disjoint.
+    seed_everything(seed + ctx.rank)
     resume_checkpoint: Path | None = None
     resume_paths: ExperimentPaths | None = None
     if resume is not None:
@@ -298,7 +341,7 @@ def run_training(
         for_training=True,
     )
     device = system.device
-    generator = torch.Generator(device=device).manual_seed(seed)
+    generator = torch.Generator(device=device).manual_seed(seed + ctx.rank)
     task_names = configured_task_names(config)
     max_samples = training_config.get("max_samples")
     loaders = {
@@ -310,6 +353,7 @@ def run_training(
             num_workers=num_workers_override,
             strict_protocol=True,
             max_samples=None if max_samples is None else int(max_samples),
+            distributed_context=ctx,
         )
         for task_name in task_names
     }
@@ -318,6 +362,7 @@ def run_training(
     trainer = UnifiedDiffusionTrainerCore(
         system.denoiser, system.training_scheduler, noise_sampler
     )
+    ddp_trainer = wrap_ddp(trainer, ctx)
     optimizer, trainable_parameters = build_optimizer(
         system.denoiser, system.visual_pathway.target_adapter, training_config
     )
@@ -332,14 +377,24 @@ def run_training(
         output_root = Path(str(config["experiment"]["output_root"])).expanduser()
         if "$" in str(output_root):
             raise ValueError("experiment.output_root contains an unresolved environment variable")
-        paths = create_experiment_directory(
-            output_root=output_root,
-            task=task_label,
-            experiment_name=experiment_name,
-            config=config,
-            command=command or sys.argv,
-            repo_root=repo_root,
-        )
+        # Only rank 0 creates the run directory (create_experiment_directory
+        # refuses to reuse an existing path); the other ranks receive the same
+        # root and rebuild their read-only view of it.
+        if ctx.is_main:
+            paths = create_experiment_directory(
+                output_root=output_root,
+                task=task_label,
+                experiment_name=experiment_name,
+                config=config,
+                command=command or sys.argv,
+                repo_root=repo_root,
+            )
+            run_root = str(paths.root)
+        else:
+            run_root = ""
+        run_root = broadcast_run_root(run_root, ctx)
+        if not ctx.is_main:
+            paths = _run_paths(Path(run_root))
         global_step = 0
     else:
         if resume_checkpoint is None or resume_paths is None:
@@ -360,11 +415,17 @@ def run_training(
                 f"checkpoint step {global_step} is not below requested max_steps {max_steps}"
             )
 
-    logger = TrainingLogger(
-        paths.root,
-        config,
-        enable_tensorboard=enable_tensorboard,
-        enable_wandb=enable_wandb,
+    # Only rank 0 owns the run directory's log/checkpoint/visualization files; the
+    # other ranks skip all persistence but still participate in every barrier.
+    logger = (
+        TrainingLogger(
+            paths.root,
+            config,
+            enable_tensorboard=enable_tensorboard,
+            enable_wandb=enable_wandb,
+        )
+        if ctx.is_main
+        else None
     )
     log_every = int(training_config.get("log_every", 1))
     checkpoint_every = int(training_config.get("checkpoint_every", 500))
@@ -385,7 +446,9 @@ def run_training(
     validation_loaders: dict[str, Any] = {}
     sampler = None
     specs = None
-    if validation_every > 0:
+    # Validation samples and writes panels on rank 0 only; other ranks never build
+    # the held-out loaders or the inference sampler.
+    if validation_every > 0 and ctx.is_main:
         from perception_diffusion.inference import UnifiedLatentSampler
         from perception_diffusion.task_specs import build_task_specs
 
@@ -449,7 +512,7 @@ def run_training(
                         latent_valid_mask=pair.latent_valid_mask,
                         text_hidden_states=text_hidden,
                     )
-                    output = trainer(latent_batch, generator=generator)
+                    output = ddp_trainer(latent_batch, generator=generator)
                     scaled_loss = output.loss / accumulation_steps
                 scaler.scale(scaled_loss).backward()
                 accumulated_loss += float(output.loss.detach()) / accumulation_steps
@@ -472,20 +535,27 @@ def run_training(
             global_step += 1
             loss_history.append(accumulated_loss)
             if global_step % log_every == 0 or global_step == 1:
-                metrics: dict[str, float | int | str] = {
-                    "train/loss": accumulated_loss,
-                    "train/gradient_norm": float(unclipped_norm),
-                    "train/seconds_per_step": time.perf_counter() - step_started,
-                    "train/task": last_task,
-                }
-                for group in optimizer.param_groups:
-                    metrics[f"lr/{group.get('group_name', 'group')}"] = float(group["lr"])
-                if device.type == "cuda":
-                    metrics["runtime/max_memory_gib"] = torch.cuda.max_memory_allocated(
-                        device
-                    ) / (1024**3)
-                logger.log(global_step, metrics)
-            if global_step % checkpoint_every == 0 or global_step == max_steps:
+                # reduce_mean is a collective: every rank must call it in lockstep
+                # (global_step advances identically because backward all-reduces the
+                # gradients). Only rank 0 then writes the global-mean scalar.
+                mean_loss = reduce_mean(accumulated_loss, ctx, device=device)
+                if logger is not None:
+                    metrics: dict[str, float | int | str] = {
+                        "train/loss": mean_loss,
+                        "train/gradient_norm": float(unclipped_norm),
+                        "train/seconds_per_step": time.perf_counter() - step_started,
+                        "train/task": last_task,
+                    }
+                    for group in optimizer.param_groups:
+                        metrics[f"lr/{group.get('group_name', 'group')}"] = float(group["lr"])
+                    if device.type == "cuda":
+                        metrics["runtime/max_memory_gib"] = torch.cuda.max_memory_allocated(
+                            device
+                        ) / (1024**3)
+                    logger.log(global_step, metrics)
+            if ctx.is_main and (
+                global_step % checkpoint_every == 0 or global_step == max_steps
+            ):
                 save_checkpoint(
                     paths.checkpoints / f"step-{global_step:08d}.pt",
                     step=global_step,
@@ -496,10 +566,12 @@ def run_training(
                     scaler=scaler,
                     generator=generator,
                 )
-            if validation_every > 0 and (
-                global_step % validation_every == 0 or global_step == max_steps
+            if (
+                validation_every > 0
+                and ctx.is_main
+                and (global_step % validation_every == 0 or global_step == max_steps)
             ):
-                assert sampler is not None and specs is not None
+                assert sampler is not None and specs is not None and logger is not None
                 validation_metrics = _run_validation(
                     system,
                     sampler,
@@ -515,7 +587,9 @@ def run_training(
                 )
                 logger.log(global_step, validation_metrics)
     finally:
-        logger.close()
+        if logger is not None:
+            logger.close()
+        destroy(ctx)
 
     summary = {
         "status": "TRAINING_COMPLETED",
@@ -523,6 +597,7 @@ def run_training(
         "steps": global_step,
         "amp_skipped_steps": skipped_steps,
         "tasks": list(task_names),
+        "world_size": ctx.world_size,
         "run_root": str(paths.root.resolve()),
         "last_checkpoint": str(
             (paths.checkpoints / f"step-{global_step:08d}.pt").resolve()
@@ -539,7 +614,10 @@ def run_training(
             "downscale_strategy": noise_sampler.downscale_strategy,
         },
     }
-    (paths.root / "metrics.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    # Only rank 0 owns the run directory; other ranks return the summary for the
+    # launcher without touching disk.
+    if ctx.is_main:
+        (paths.root / "metrics.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
     return summary

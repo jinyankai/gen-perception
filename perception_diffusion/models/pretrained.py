@@ -106,10 +106,14 @@ def load_pretrained_system(
             "real model loading requires diffusers and transformers from requirements.txt"
         ) from exc
 
-    if config.get("runtime", {}).get("distributed") != "disabled":
+    distributed = config.get("runtime", {}).get("distributed", "disabled")
+    if distributed not in {"disabled", "ddp"}:
         raise NotImplementedError(
-            "the reusable runner currently supports one process; validate NCCL before DDP"
+            f"unsupported runtime.distributed={distributed!r}; expected disabled or ddp"
         )
+    # For DDP the training runner initializes the process group and binds this
+    # rank's device (torch.cuda.set_device) before calling in, so torch.device
+    # ("cuda") below already resolves to the correct per-rank GPU.
     device = resolve_device(config, device_override)
     precision = precision_override or str(config["training"].get("mixed_precision", "no"))
     autocast_dtype = resolve_precision_dtype(precision, device)

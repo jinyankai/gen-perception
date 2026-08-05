@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -92,7 +93,11 @@ def main() -> int:
         print(f"TRAINING_FAILED: {exc}", file=sys.stderr)
         traceback.print_exc()
         return 2
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    # Under torchrun every rank runs this script; only rank 0 owns the run
+    # directory and its summary, so only rank 0 prints. RANK is unset for the
+    # single-process path, which is therefore treated as rank 0.
+    if int(os.environ.get("RANK", "0")) == 0:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
 

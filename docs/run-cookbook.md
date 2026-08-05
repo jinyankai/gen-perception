@@ -169,7 +169,70 @@ CUDA_VISIBLE_DEVICES=0 python scripts/validate_conditions.py \
 
 预期：生成 `comparison.png`、每种条件的 PNG 和 `condition_report.json`。非零差异只证明模型对条件敏感；必须结合过拟合后的语义结果判断条件是否正确。
 
-## 7. 返回证据
+## 7. 多卡全量训练（DDP）
+
+只有在第 0-6 节全部通过、且这次要占用的 GPU 全部空闲时才执行本节。全量配置为 `configs/multitask/stage1_shared_unet_ddp.yaml`（60k 步、每卡 batch=2、grad_accum=4；8 卡有效 batch = 2×4×8 = 64，LR 不随卡数缩放）。
+
+### 7.1 分布式 gate（先证明 NCCL 与 DDP 优化步可跑）
+
+按 `docs/agent-harness/server-operator-contract.md` 的静态 loopback 启动顺序，先 2 卡再 8 卡：
+
+```bash
+cd /home/jinyankai/gen-perception
+GP_PYTHON=/home/jinyankai/miniconda3/envs/gen-perception/bin/python
+
+# 单卡真实前向 gate
+CUDA_VISIBLE_DEVICES=0 python scripts/operator/segmentation_training_gate.py --steps 1 --image-size 256
+
+# NCCL smoke：先 2 卡
+CUDA_VISIBLE_DEVICES=0,1 "$GP_PYTHON" -m torch.distributed.run \
+  --nnodes=1 --nproc-per-node=2 --node-rank=0 \
+  --master-addr=127.0.0.1 --master-port=29511 \
+  scripts/operator/distributed_cuda_smoke.py
+
+# DDP 优化步 gate：先 2 卡
+CUDA_VISIBLE_DEVICES=0,1 "$GP_PYTHON" -m torch.distributed.run \
+  --nnodes=1 --nproc-per-node=2 --node-rank=0 \
+  --master-addr=127.0.0.1 --master-port=29512 \
+  scripts/operator/segmentation_ddp_training_gate.py --steps 1 --image-size 256
+```
+
+2 卡通过后，把 `CUDA_VISIBLE_DEVICES` 与 `--nproc-per-node` 换成 8 重跑 smoke 与 DDP gate（换用新端口，如 29513/29514）。预期每个 rank 打印 `SEGMENTATION_DDP_TRAINING_GATE_PASSED`、非零参数更新、有限 loss/梯度、replica checksum 一致。任一 rank 失败即停止，不启动全量。
+
+### 7.2 全量前先跑 20 步冒烟
+
+`scripts/launch_ddp.sh` 封装了上面同款静态 loopback 启动器。先只跑 20 步确认落盘与多卡一致：
+
+```bash
+cd /home/jinyankai/gen-perception
+export DATA_ROOT=/home/jinyankai/data
+export MODEL_CACHE=/home/jinyankai/models
+export OUTPUT_ROOT=/home/jinyankai/outputs
+
+scripts/launch_ddp.sh 8 configs/multitask/stage1_shared_unet_ddp.yaml -- --max-steps 20
+```
+
+预期：仅 rank0 创建 run 目录并打印 `TRAINING_COMPLETED`（`world_size: 8`）；生成 `metrics.jsonl`、`metrics.json` 与一个 checkpoint；`train/loss` 有限且多卡量级一致；`runtime/max_memory_gib` 不超 24GB。若任一 rank OOM、loss 非有限或进程组超时，停止并保留目录返回日志。
+
+### 7.3 放开 60k 全量
+
+```bash
+cd /home/jinyankai/gen-perception
+scripts/launch_ddp.sh 8 configs/multitask/stage1_shared_unet_ddp.yaml
+```
+
+预期：约 60000 优化步；`checkpoint_every=500`、`validation.every=2000` 均只由 rank0 写盘。查看 TensorBoard 同第 3 节（`--logdir "$OUTPUT_ROOT" --host 127.0.0.1`）。显存/耗时随实际返回登记，不预设。
+
+resume（从 rank0 的 checkpoint 继续，单卡与多卡产物 state_dict 互通）：
+
+```bash
+scripts/launch_ddp.sh 8 configs/multitask/stage1_shared_unet_ddp.yaml -- \
+  --resume "$OUTPUT_ROOT/multitask/stage1-shared-unet-multitask-ddp-v1/checkpoints/step-00030000.pt"
+```
+
+预期：同一 run 目录 step 单调增加。若 config 与 checkpoint 不匹配或恢复后首步非有限，停止并保留原文件。
+
+## 8. 返回证据
 
 请返回以下文件或完整文本，不要只返回“成功”：
 
@@ -178,4 +241,5 @@ CUDA_VISIBLE_DEVICES=0 python scripts/validate_conditions.py \
 3. VAE `report.json` 与 `fidelity.md`；
 4. 条件 `condition_report.json` 和 `comparison.png`；
 5. 每任务至少一张推理 panel；
-6. `git rev-parse HEAD`、GPU 型号、运行时长和峰值显存。
+6. 多卡：分布式 smoke 与 DDP gate 每 rank 结果、`world_size`、峰值显存；
+7. `git rev-parse HEAD`、GPU 型号、运行时长和峰值显存。

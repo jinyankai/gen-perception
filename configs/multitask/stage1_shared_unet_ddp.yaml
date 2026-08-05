@@ -1,0 +1,20 @@
+# Multi-GPU DDP variant of the 60k-step three-task full-scale run.
+#
+# Identical to stage1_shared_unet.yaml except that it turns on the explicit
+# DistributedDataParallel switch. Launch it under torchrun (see
+# scripts/launch_ddp.sh); a plain `python scripts/train.py` invocation of this
+# config fails fast because runtime.distributed=ddp requires RANK/WORLD_SIZE/
+# LOCAL_RANK from a torch.distributed.run launch context.
+#
+# Learning rates and batch geometry are inherited unchanged: per-rank
+# batch_size=2 x gradient_accumulation_steps=4 x world_size=8 gives a global
+# effective batch of 64. max_steps stays 60000 optimizer steps (not scaled by
+# world size). LR is intentionally not auto-scaled.
+defaults:
+  - ./stage1_shared_unet.yaml
+
+runtime:
+  distributed: ddp
+
+experiment:
+  name: stage1-shared-unet-multitask-ddp-v1
