@@ -1,0 +1,20 @@
+# Multi-GPU DDP variant of the single-task ADE20K segmentation run.
+#
+# Identical to ade20k.yaml except that it turns on the explicit
+# DistributedDataParallel switch. Launch it under torchrun (see
+# scripts/launch_ddp.sh); a plain `python scripts/train.py` invocation of this
+# config fails fast because runtime.distributed=ddp requires RANK/WORLD_SIZE/
+# LOCAL_RANK from a torch.distributed.run launch context.
+#
+# Learning rates and batch geometry are inherited unchanged: per-rank
+# batch_size=2 x gradient_accumulation_steps=4 x world_size gives the global
+# effective batch. max_steps stays 20000 optimizer steps (not scaled by world
+# size). LR is intentionally not auto-scaled.
+defaults:
+  - ./ade20k.yaml
+
+runtime:
+  distributed: ddp
+
+experiment:
+  name: ade20k-unified-ddp-v1
