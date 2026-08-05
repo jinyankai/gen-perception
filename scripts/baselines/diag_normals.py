@@ -173,6 +173,29 @@ def flip_search(per) -> None:
             print(f"[flip] {fname:9s} shape-incompatible, skipped")
 
 
+def gt_roughness(per) -> None:
+    """Local roughness of the GT normal field: angle between horizontally/vertically
+    adjacent GT normals. A smooth annotated GT is near 0; a noisy depth-derived GT
+    is large. Also report the per-sample sign-corrected pred-vs-GT error so the two
+    magnitudes can be compared side by side."""
+    sign = np.array([1, -1, -1], np.float32)[:, None, None]
+    rough_all, err_all = [], []
+    for _sid, p, g, m in per:
+        dh = np.clip((g[:, :, 1:] * g[:, :, :-1]).sum(0), -1.0, 1.0)
+        dv = np.clip((g[:, 1:, :] * g[:, :-1, :]).sum(0), -1.0, 1.0)
+        mh = m[:, 1:] & m[:, :-1]
+        mv = m[1:, :] & m[:-1, :]
+        rough = np.concatenate([np.degrees(np.arccos(dh))[mh],
+                                np.degrees(np.arccos(dv))[mv]])
+        rough_all.append(rough)
+        cos = np.clip(((p * sign) * g).sum(0), -1.0, 1.0)
+        err_all.append(np.degrees(np.arccos(cos))[m])
+    r = np.concatenate(rough_all)
+    e = np.concatenate(err_all)
+    print(f"[gt-rough] GT_local_roughness  mean={r.mean():6.2f} median={np.median(r):6.2f} p90={np.percentile(r,90):6.2f}")
+    print(f"[gt-rough] pred_vs_GT_error    mean={e.mean():6.2f} median={np.median(e):6.2f} p90={np.percentile(e,90):6.2f}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.environ.get("OUT"))
@@ -191,6 +214,7 @@ def main() -> int:
     P, G, per = _gather(args.out, ids)
     kabsch_residual(P, G)
     flip_search(per)
+    gt_roughness(per)
     return 0
 
 
