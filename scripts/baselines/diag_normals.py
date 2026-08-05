@@ -111,6 +111,68 @@ def sign_perm_search(out: str, ids: list[str], permute: bool) -> None:
     print(f"[search] BEST {results[0]}")
 
 
+def _gather(out: str, ids: list[str]):
+    """Return (P, G, per_sample) as 3xN stacks plus per-sample (sid, p3hw, g3hw, mask)."""
+    preds, gts, per = [], [], []
+    for sid in ids:
+        pf, gf, mf, _ = _paths(out, sid)
+        if not (os.path.exists(gf) and os.path.exists(mf)):
+            continue
+        p = _unit(_chw(np.load(pf)))
+        g = _unit(_chw(np.load(gf)))
+        m = np.load(mf).astype(bool)
+        preds.append(p[:, m])
+        gts.append(g[:, m])
+        per.append((sid, p, g, m))
+    return np.concatenate(preds, axis=1), np.concatenate(gts, axis=1), per
+
+
+def kabsch_residual(P: np.ndarray, G: np.ndarray) -> None:
+    """Best-fit orthogonal transform (allows reflection) mapping P->G; report residual."""
+    H = P @ G.T
+    U, _, Vt = np.linalg.svd(H)
+    R = (Vt.T @ U.T)
+    PR = R @ P
+    cos = np.clip((PR * G).sum(0), -1.0, 1.0)
+    mae = float(np.degrees(np.arccos(cos)).mean())
+    print(f"[kabsch] det(R)={np.linalg.det(R):+.3f}")
+    print("[kabsch] R=" + np.array2string(R, precision=3, suppress_small=True).replace("\n", " "))
+    print(f"[kabsch] residual_mean_ang_after_best_rotation={mae:6.2f}")
+
+
+def flip_search(per) -> None:
+    """For each spatial flip, find best axis-sign; catches stored-orientation mismatch."""
+    flips = {
+        "none": lambda a: a,
+        "lr": lambda a: a[:, :, ::-1],
+        "ud": lambda a: a[:, ::-1, :],
+        "both": lambda a: a[:, ::-1, ::-1],
+        "transpose": lambda a: np.swapaxes(a, 1, 2),
+    }
+    for fname, fn in flips.items():
+        best = None
+        for sx in (1, -1):
+            for sy in (1, -1):
+                for sz in (1, -1):
+                    s = np.array([sx, sy, sz], np.float32)[:, None, None]
+                    tot_cos, tot_n = 0.0, 0
+                    for _sid, p, g, m in per:
+                        pp = fn(p) * s
+                        if pp.shape != g.shape:
+                            break
+                        cos = np.clip((pp * g).sum(0), -1.0, 1.0)[m]
+                        tot_cos += float(np.degrees(np.arccos(cos)).sum())
+                        tot_n += int(m.sum())
+                    else:
+                        mae = tot_cos / max(tot_n, 1)
+                        if best is None or mae < best[0]:
+                            best = (mae, (sx, sy, sz))
+        if best is not None:
+            print(f"[flip] {fname:9s} best_sign={best[1]} mean_ang={best[0]:6.2f}")
+        else:
+            print(f"[flip] {fname:9s} shape-incompatible, skipped")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default=os.environ.get("OUT"))
@@ -126,6 +188,9 @@ def main() -> int:
         return 2
     gt_self_consistency(args.out, ids[0])
     sign_perm_search(args.out, ids, permute=args.permute)
+    P, G, per = _gather(args.out, ids)
+    kabsch_residual(P, G)
+    flip_search(per)
     return 0
 
 
